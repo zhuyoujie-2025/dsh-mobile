@@ -1,0 +1,23 @@
+# AWL 协作账本(本机状态,勿入仓)
+.awl/
+
+# 构建产物
+build/
+dist/
+
+# 本地签名密钥(勿入仓)
+dshmobile.keystore
+*.keystore
+*.jks
+
+# 备份文件
+*.bak
+*.bak.*
+
+# 日志/状态
+*.log
+*.json.tmp
+
+# OS/编辑器
+Thumbs.db
+.DS_Store

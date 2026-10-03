@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- API<29 回退:无 DayNight 框架主题,固定亮色(App 内色板自行按 uiMode 适配) -->
+    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar"/>
+</resources>
