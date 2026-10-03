@@ -22,34 +22,38 @@ The app scans common entry ports on your subnet (3088 lan-gate default →
 3082 dsh-bridge official default / 3083-3084 bumped → 3089-3094 community
 range) and stores the full address (including `?token=`) in history.
 
-**Recommended path = lan-gate gateway** (no token; approval-based, or a shared
-password that turns first visit into "log in once"):
+**Recommended path = lan-gate gateway** (zero-touch: no password, no token,
+no approval page):
 
 ```powershell
 dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate   # plugin (upstream repo, 0.0.0.0:3088)
 node gate/lan-gate-server.cjs           # standalone from this repo, 0.0.0.0:3088 -> 127.0.0.1:3080
-
-# standalone + zero-PC-approval ("same account on both ends"):
-LAN_GATE_PASSWORD=<your-password> node gate/lan-gate-server.cjs
-# or on Windows: tools\start-lan-gate.ps1 -Password <your-password>
+# or on Windows: tools\start-lan-gate.ps1  (auto-locates .credentials.yaml)
 ```
 
-Then on the PC run `powershell -File tools/get-mobile-url.ps1` to copy
-`http://<lan-ip>:3088/`; enter it in the app → first visit:
-- **password set + URL carries `?pw=<password>`** (`get-mobile-url.ps1 -Password`
-  prints it): self-approves instantly — **no login screen at all**, the address
-  itself is the credential; saved once, works forever
-- **password set, plain URL**: the page IS a login form — enter the same
-  password, you're in (no PC-side action)
-- **no password**: phone shows "waiting for approval" → open
-  `http://127.0.0.1:3088/lan-gate/admin` on the PC and approve → DSH loads
+Phone: **install APK → open → auto-search → DSH loads**, already logged in as
+the same desktop instance session (account/balance included) — no gate at all.
+
+Why nothing needs typing:
+- **Session injection**: the standalone gate reads the `browser-session`
+  signing secret from `<DSH_HOME>/.credentials.yaml` and mints a fresh upstream
+  session cookie into every forwarded request (HTTP + WebSocket) — the same
+  algorithm the official dsh-bridge uses. `dsh web` users are covered out of
+  the box (`~/.dsh`); desktop-app users point `DSH_HOME` at the desktop home
+  (or `LAN_GATE_CREDENTIALS=<path to .credentials.yaml>`).
+- **Auto-pairing** (`LAN_GATE_AUTO=first`, default): the first foreign device
+  to connect pairs itself (TOFU); subsequent devices fall back to the approval
+  page. `all` trusts the whole LAN (survives DHCP renumbering — trusted home
+  Wi-Fi only); `off` restores strict approval; `LAN_GATE_PASSWORD=<pwd>` adds
+  a password login page for devices beyond the first.
+- Missing credentials degrade silently: the phone sees DSH's native 401 token
+  page and the classic flow still works.
 
 **Fallback = official `dsh-bridge` preset plugin** (`@wenbin_wb/dsh-bridge`,
 bundled with the desktop app: LAN QR / Cloudflare tunnel / IM bots). Its LAN
 proxy defaults to **3082** (bumps when occupied). The bridge has its own QR
-token / password gate and injects the loopback session cookie itself — **the
-phone does NOT need DSH's native `?token=`**; paste the token link shown in the
-bridge console into the app.
+token / password gate and also injects the loopback session cookie — paste the
+token link shown in the bridge console into the app.
 
 ## Behavior highlights (v1.5)
 
@@ -58,10 +62,14 @@ bridge console into the app.
 - **Stable connection**: built-in loopback TCP forwarder → DSH frontend trusts
   host-persisted settings; cookies survive IP changes. Main-frame failure
   triggers a subnet rescan — no black screen.
-- **Auth**: lan-gate needs no token — device approval, or `LAN_GATE_PASSWORD`
-  shared-password login (8 wrong tries/IP locks 10 min, timingSafeEqual
-  compare); `dsh web` direct needs a one-time `?token=` minting a 30-day
-  cookie; dsh-bridge uses its own token/password gate.
+- **Auth**: lan-gate has two gates, both avoidable — device admission
+  (`LAN_GATE_AUTO`: `first` auto-pairs the first foreign device / `all` /
+  `off` approval-only, explicit deny always wins; optional
+  `LAN_GATE_PASSWORD` login page, 8 wrong tries/IP locks 10 min,
+  timingSafeEqual) and upstream session injection (mints the DSH loopback
+  session cookie itself so the phone never meets `?token=`); `dsh web` direct
+  needs a one-time `?token=` minting a 30-day cookie; dsh-bridge uses its own
+  token/password gate.
 - **Updates**: at boot the app tries `http://<entry-host>:3093/dshmobile/version.json`
   (optional LAN feed), then this repo's `releases/latest/download/version.json`.
   A newer `versionCode` prompts a DownloadManager install.

@@ -22,5 +22,6 @@ Write-Host "手机与电脑同一局域网时, 在 App 里输入:"
 Write-Host "  $url" -ForegroundColor Cyan
 try { Set-Clipboard $url; Write-Host "(已复制到剪贴板)" } catch { Write-Host "(剪贴板不可用, 手动复制上面的地址)" }
 Write-Host ""
-Write-Host "lan-gate: 手机首访等批准页(电脑开 http://127.0.0.1:$GatePort/lan-gate/admin 批准,选「手机」);若网关设了 LAN_GATE_PASSWORD 则直接输密码即进。" -ForegroundColor DarkGray
-Write-Host "dsh web/dsh-bridge 认证页: 重启后 token 会轮换,需重新取地址。" -ForegroundColor DarkGray
+Write-Host "lan-gate(默认 LAN_GATE_AUTO=first): 第一台设备即配对,地址不带任何参数即可;" -ForegroundColor DarkGray
+Write-Host "  若走审批页: 电脑开 http://127.0.0.1:$GatePort/lan-gate/admin 批准;设了 LAN_GATE_PASSWORD 则输密码或用 -Password 生成 ?pw= 票据链接。" -ForegroundColor DarkGray
+Write-Host "dsh web 直连/桥 token 失效时: 用 -Token 重新取地址(token 每次启动轮换)。" -ForegroundColor DarkGray

@@ -25,22 +25,31 @@ DSH Web UI 默认只绑 loopback。手机要进来,必须有人在 0.0.0.0 上�
 
 | 入口 | 默认口 | 认证 | 签名(App 探测) | 备注 |
 |---|---|---|---|---|
-| lan-gate(上游插件 `dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate`,或本仓 `gate/lan-gate-server.cjs`) | 3088(顺延+1..+20) | 设备审批 **或** `LAN_GATE_PASSWORD` 共享口令登录 | 页含 `lan-gate`/`/?t=` | **推荐**:审批页 `/lan-gate/admin`,限流 120 req/min/IP;密码模式=手机端登录页自助进入 |
+| lan-gate(上游插件 `dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate`,或本仓 `gate/lan-gate-server.cjs`) | 3088(顺延+1..+20) | 设备准入 `LAN_GATE_AUTO`(first 首台自动配对/all/off)+ 上游会话注入;可选 `LAN_GATE_PASSWORD` 登录页 | 页含 `lan-gate`/`/?t=` | **推荐**:审批页 `/lan-gate/admin`,限流 120 req/min/IP;注入让手机永不碰 `?token=` |
 | dsh-bridge(`@wenbin_wb/dsh-bridge`,桌面版官方预设插件) | **3082**(被占顺延 3083/3084) | 桥自有门禁:二维码 256-bit token / 访问密码;转发时自动注入回环会话 cookie | 页含 `DeepSeek Harness`/`dsh-bridge` | 手机用桥控制台给的带 token 链接;另有 Cloudflare 隧道、IM bot |
 | dsh web 直接绑 0.0.0.0 | 3080 或自定义 | `?token=` → cookie | 401 页含 `dsh web authentication` | 无网关功能,直连内核 |
 
 ## 2. 认证模型
 
-- **lan-gate**:无 token,两种放行业态——
-  a) **审批**(默认):首次访问手机被挂起在「等待批准」页;电脑端打开
-  `http://127.0.0.1:<口>/lan-gate/admin`(loopback 免鉴权)批准设备;
-  b) **共享口令**(`LAN_GATE_PASSWORD` 非空时,本仓独立版特性):等待页变为
-  登录页,输对密码即批准(`POST /lan-gate/login`,timingSafeEqual 比较,
-  同 IP 8 次错误锁 10 分钟);或入口地址直接带 `?pw=<密码>` 票据直通——
-  首访即自助批准,连登录页都不出现,地址本身就是凭证(同 dsh-bridge
-  二维码 token 链接模型)——这就是"桌面端与移动版登同一个口令"模式,
-  手机端全程不需要电脑配合。显式 deny 的 IP 两种口令方式都不放行。
-  两种方式网关都给设备种 `lg_token` cookie,之后同设备直连。
+- **lan-gate**:两道独立的门,本仓独立版都让手机可以零操作穿过——
+  a) **设备准入**(`LAN_GATE_AUTO`,默认 `first`):第一台接入的外部设备
+  自动配对放行(TOFU,写入 decisions 并发 `lg_token` cookie,之后同设备
+  直连);第二台起回等待/登录页。`all`=同 LAN 设备全部自动放行(可信
+  家用网络,设备 DHCP 换 IP 也免操作);`off`=恢复严格审批——手机挂起在
+  「等待批准」页,电脑端 `http://127.0.0.1:<口>/lan-gate/admin`(loopback
+  免鉴权)批准。显式 deny 的 IP 任何模式都不放行。
+  b) **共享口令**(`LAN_GATE_PASSWORD` 非空,可选叠加):未知设备的页面变
+  登录页,输对密码即批准(`POST /lan-gate/login`,timingSafeEqual,
+  同 IP 8 错锁 10 分钟);入口地址带 `?pw=<密码>` 可票据直通。
+  c) **上游会话注入**(凭据可读即自动,独立版特性):网关读
+  `<DSH_HOME>/.credentials.yaml`(或 `LAN_GATE_CREDENTIALS` 指定)里
+  `client-connection/browser-session` 的签名密钥,按 DSH 官方格式
+  (`dsh-auth-<b64url sha256(authority)>` = `v1.<b64 payload>.<b64 HMAC-SHA256>`,
+  算法同 @wenbin_wb/dsh-bridge 的 dsh-native-cookie)给**每个转发请求
+  (HTTP 与 WebSocket 握手)**现铸回环会话 cookie——手机端因此永不触碰
+  DSH 原生 `?token=` 门,直接呈现桌面端已登录的实例会话(同一账号)。
+  凭据缺失时静默退化:手机落到原生 401 token 页,经典流程仍可用。
+  注意:注入只对「已过设备准入的转发流量」生效,不削弱准入层本身。
 - **token 系**(dsh web 直连):入口地址形如 `http://IP:PORT/?token=XXXX`。
   token 是一次性引导凭证——拿到后立刻换 30 天会话 cookie,**cookie 跨服务端
   重启仍有效**;token 本身每次 `dsh web` 启动轮换。App 收到 401 会自动用保存的

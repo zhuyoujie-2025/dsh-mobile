@@ -21,38 +21,43 @@ App 会扫本网段常见入口端口(3088 lan-gate 插件/独立网关默认口
 dsh-bridge 官方默认/3083-3084 顺延 → 3089-3094 自管区间),命中后把整段地址
 (含 `?token=`)存进历史。
 
-**推荐链路 = lan-gate 网关**(免 token;审批制,或设密码后"登同一个口令即进"):
+**推荐链路 = lan-gate 网关(零操作:不设密码、不用 token、不用审批页)**:
 
 ```powershell
-# 电脑端任选其一:
+# 电脑端任选其一,一条命令完事:
 dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate   # A. 插件(上游仓库,默认 0.0.0.0:3088)
 node gate/lan-gate-server.cjs          # B. 本仓独立进程,默认 0.0.0.0:3088 → 127.0.0.1:3080
-
-# B 方式想免电脑端审批("桌面与移动登同一个号"):
-LAN_GATE_PASSWORD=<你的访问密码> node gate/lan-gate-server.cjs
-# 或 Windows 一键: tools\start-lan-gate.ps1 -Password <访问密码>
+# 或 Windows 一键: tools\start-lan-gate.ps1(自动定位 .credentials.yaml 启用会话注入)
 ```
 
-然后电脑跑 `powershell -File tools/get-mobile-url.ps1`(自动挑真实 LAN IP 并复制
-`http://<ip>:3088/`),在 App 输入 → 手机首访:
-- **设了密码 + 入口地址带 `?pw=<密码>`**(`get-mobile-url.ps1 -Password <密码>`
-  一键生成):首访即自助批准,**连登录页都不出现**——地址本身就是"账号",
-  存进 App 后永久免操作
-- **设了密码但地址没带 `?pw=`**:等待页即登录页,输同一个密码即进
-- **没设密码**:停在「等待批准」→ 电脑浏览器开 `http://127.0.0.1:3088/lan-gate/admin` 批准(选「手机」)→ 自动进 DSH
+手机端:**装 APK → 打开 → 自动搜索 → 直接进 DSH**,
+看到的就是桌面端已登录的同一个实例(账号/会话/余额一致)——不碰任何门。
+
+为什么不用输任何东西:
+- **会话注入**:独立网关自动读 `<DSH_HOME>/.credentials.yaml` 的
+  `browser-session` 签名密钥,给每个转发请求(HTTP+WebSocket)现铸上游会话
+  cookie——与官方 dsh-bridge 相同的注入算法,手机端永远不出现 401 token 页。
+  `dsh web` 用户凭据就在 `~/.dsh`,开箱即用;桌面端用户把 `DSH_HOME` 指到
+  桌面端 home(或 `LAN_GATE_CREDENTIALS=<.credentials.yaml 路径>`)。
+- **自动配对**(`LAN_GATE_AUTO=first`,默认):第一台接入的外部设备即配对
+  (TOFU),之后该设备 cookie 直连;第二台起回到审批页。
+  `all`=信任整个局域网(设备换 IP 也永远免操作,仅家用可信 Wi-Fi);
+  `off`=恢复严格审批;`LAN_GATE_PASSWORD=<pwd>` 额外开密码登录页。
+- 凭据文件不可读时静默退化:手机看到 DSH 原生 401 token 页,老流程仍可用。
 
 **备选链路 = 官方 dsh-bridge 预设插件**(`@wenbin_wb/dsh-bridge`,桌面端内置,
 LAN 二维码/Cloudflare 隧道/IM bot)。桥默认 LAN 代理口 **3082**(被占顺延);
-它自带二维码 token/访问密码门禁并自动注入回环会话 cookie——**手机不需要
-DSH 原生 `?token=`**,在 App 里填桥控制台给出的带 token 链接即可。
+它自带二维码 token/访问密码门禁并同样注入回环会话 cookie——在 App 里填
+桥控制台给出的带 token 链接即可。
 
 ## 手机端使用
 
 1. **装 APK**: 把 `dist/DSHMobile.apk` 传到手机安装(允许未知来源)。
 2. **放行防火墙**(仅独立网关需要): 管理员运行 `tools/allow-gate-firewall.ps1`
    (放行 TCP 3088-3093 入站;若你的网关用其他口自行放行)。
-3. **取地址**: `powershell -File tools/get-mobile-url.ps1` → 复制 `http://<电脑IP>:3088/`。
-4. **App 输入 → 批准设备** → 进 DSH。会话 30 天 cookie,主本重启不失效。
+3. **App 自动搜索** → 直接进 DSH(默认首台设备自动配对+上游会话注入,
+   无密码/无 token/无审批)。会话 30 天 cookie,主本重启不失效。
+   手动输地址可用 `tools/get-mobile-url.ps1` 生成。
 
 ## 行为要点(v1.5)
 
@@ -61,9 +66,11 @@ DSH 原生 `?token=`**,在 App 里填桥控制台给出的带 token 链接即可
 - **连接稳定**: 内置 TCP 转发器(WebView 恒打 `127.0.0.1:<LPORT>`)→ DSH 前端
   判 loopback 受信任,设置走 host 持久化、cookie 不随电脑换 IP 失效。
   主框架加载失败自动重扫网段找回入口,不黑屏。
-- **认证**: lan-gate 免 token——审批制,或 `LAN_GATE_PASSWORD` 共享口令登录
-  (同 IP 8 次错误锁 10 分钟,密码经 timingSafeEqual 比较);dsh web 直连的
-  `?token=` 一次换 30 天 cookie;dsh-bridge 走桥自有 token/密码门禁。
+- **认证**: lan-gate 两道门——设备准入(`LAN_GATE_AUTO`:first 首台自动配对/
+  all 全放行/off 审批,显式 deny 优先;`LAN_GATE_PASSWORD` 可选密码登录页,
+  同 IP 8 错锁 10 分钟、timingSafeEqual)和上游会话注入(自动铸 DSH 回环
+  会话 cookie,手机不碰 `?token=`);dsh web 直连 `?token=` 一次换 30 天
+  cookie;dsh-bridge 走桥自有 token/密码门禁。
 - **更新**: App 启动先查同网段 `http://<入口主机>:3093/dshmobile/version.json`
   (可选,`tools/start-apk-feed-3093.ps1` 拉起);不通再查本仓库
   `releases/latest/download/version.json` → 发现新 versionCode 弹窗 +
