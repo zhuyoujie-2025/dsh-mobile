@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # make-icon.py — 生成 app/res/mipmap-*/ic_launcher.png
 # v2: 官方图标 = favicon.svg 鲸鱼字形(白) + DeepSeek 品牌蓝圆角底
-# 需要 WSL ImageMagick 先把 svg 渲染成 512px 透明 PNG:
-#   wsl -d Ubuntu-24.04 -- bash -lc 'cd /mnt/c/Users/36436/Desktop/dsh-mobile-apk/app && convert -background none -density 1024 favicon.svg -resize 512x512 icon512.png'
+# 需要 ImageMagick 先把 svg 渲染成 512px 透明 PNG(产出 app/icon512.png,已入仓;
+# 换图标才需重跑): cd app && convert -background none -density 1024 favicon.svg -resize 512x512 icon512.png
 # 用法: py -3 tools/make-icon.py
 import os
 from PIL import Image, ImageDraw

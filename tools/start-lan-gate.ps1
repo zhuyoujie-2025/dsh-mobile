@@ -22,6 +22,7 @@ if (-not (Get-NetTCPConnection -LocalPort $TargetPort -State Listen -ErrorAction
 
 if (-not $Node) {
     $Node = (Get-Command node -ErrorAction SilentlyContinue).Source
+    # 可选回退:无 PATH 场景下常见的本机 node 安装位,不存在即跳过
     if (-not $Node -and (Test-Path 'C:\nvm4w\nodejs\node.exe')) { $Node = 'C:\nvm4w\nodejs\node.exe' }
     if (-not $Node) { Write-Host "node not found in PATH"; exit 1 }
 }

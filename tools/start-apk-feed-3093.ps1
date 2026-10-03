@@ -12,6 +12,7 @@ New-Item -ItemType Directory -Force $Home2 | Out-Null
 
 $env:APK_FEED_PORT = "$Port"
 $node = (Get-Command node -ErrorAction SilentlyContinue).Source
+# 可选回退:看门狗/计划任务等无 PATH 场景下常见的本机 node 安装位,不存在即跳过
 if (-not $node -and (Test-Path 'C:\nvm4w\nodejs\node.exe')) { $node = 'C:\nvm4w\nodejs\node.exe' }
 if (-not $node) { Write-Host "node not found in PATH"; exit 1 }
 $server = Join-Path $PSScriptRoot 'apk-feed-server.cjs'
