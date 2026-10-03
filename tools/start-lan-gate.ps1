@@ -1,12 +1,14 @@
 # start-lan-gate.ps1 — 拉起独立 lan-gate 网关 (Windows)
 # 手机 App → 0.0.0.0:<Port> → 127.0.0.1:<TargetPort> (本机 dsh web / 桌面内核)
 # 幂等: 目标口已监听则直退。状态存 <StateHome>\lan-gate-state.json。
-# 用法: powershell -NoProfile -ExecutionPolicy Bypass -File tools/start-lan-gate.ps1 [-Port 3088] [-TargetPort 3080]
+# -Password: 设访问密码后,手机首访输同一密码即进(免电脑端审批);不传则保留审批页。
+# 用法: powershell -NoProfile -ExecutionPolicy Bypass -File tools/start-lan-gate.ps1 [-Port 3088] [-TargetPort 3080] [-Password <访问密码>]
 param(
     [int]$Port = 3088,
     [int]$TargetPort = 3080,
     [string]$StateHome = "$env:USERPROFILE\.dsh\gates\$Port",
-    [string]$Node = ""
+    [string]$Node = "",
+    [string]$Password = ""
 )
 $ErrorActionPreference = 'Stop'
 
@@ -33,6 +35,7 @@ $env:LAN_GATE_PORT = "$Port"
 $env:LAN_GATE_HOST = '0.0.0.0'
 $env:LAN_GATE_TARGET_PORT = "$TargetPort"
 $env:DSH_HOME = $StateHome
+if ($Password) { $env:LAN_GATE_PASSWORD = $Password } else { Remove-Item Env:LAN_GATE_PASSWORD -ErrorAction SilentlyContinue }
 
 $p = Start-Process -WindowStyle Hidden -PassThru -FilePath $Node `
     -ArgumentList "`"$server`"" `

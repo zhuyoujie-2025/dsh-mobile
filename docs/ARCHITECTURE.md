@@ -25,15 +25,20 @@ DSH Web UI 默认只绑 loopback。手机要进来,必须有人在 0.0.0.0 上�
 
 | 入口 | 默认口 | 认证 | 签名(App 探测) | 备注 |
 |---|---|---|---|---|
-| lan-gate(上游插件 `dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate`,或本仓 `gate/lan-gate-server.cjs`) | 3088(顺延+1..+20) | 设备审批,免 token | 页含 `lan-gate`/`/?t=` | **推荐**:审批页 `/lan-gate/admin`,限流 120 req/min/IP |
+| lan-gate(上游插件 `dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate`,或本仓 `gate/lan-gate-server.cjs`) | 3088(顺延+1..+20) | 设备审批 **或** `LAN_GATE_PASSWORD` 共享口令登录 | 页含 `lan-gate`/`/?t=` | **推荐**:审批页 `/lan-gate/admin`,限流 120 req/min/IP;密码模式=手机端登录页自助进入 |
 | dsh-bridge(`@wenbin_wb/dsh-bridge`,桌面版官方预设插件) | **3082**(被占顺延 3083/3084) | 桥自有门禁:二维码 256-bit token / 访问密码;转发时自动注入回环会话 cookie | 页含 `DeepSeek Harness`/`dsh-bridge` | 手机用桥控制台给的带 token 链接;另有 Cloudflare 隧道、IM bot |
 | dsh web 直接绑 0.0.0.0 | 3080 或自定义 | `?token=` → cookie | 401 页含 `dsh web authentication` | 无网关功能,直连内核 |
 
 ## 2. 认证模型
 
-- **lan-gate**:无 token。首次访问手机被挂起在「等待批准」页;
-  电脑端打开 `http://127.0.0.1:<口>/lan-gate/admin`(loopback 免鉴权)批准设备,
-  网关给手机种 cookie,之后同设备直连。
+- **lan-gate**:无 token,两种放行业态——
+  a) **审批**(默认):首次访问手机被挂起在「等待批准」页;电脑端打开
+  `http://127.0.0.1:<口>/lan-gate/admin`(loopback 免鉴权)批准设备;
+  b) **共享口令**(`LAN_GATE_PASSWORD` 非空时,本仓独立版特性):等待页变为
+  登录页,输对密码即批准(`POST /lan-gate/login`,timingSafeEqual 比较,
+  同 IP 8 次错误锁 10 分钟)——这就是"桌面端与移动版登同一个口令"模式,
+  手机端全程不需要电脑配合。
+  两种方式网关都给设备种 `lg_token` cookie,之后同设备直连。
 - **token 系**(dsh web 直连):入口地址形如 `http://IP:PORT/?token=XXXX`。
   token 是一次性引导凭证——拿到后立刻换 30 天会话 cookie,**cookie 跨服务端
   重启仍有效**;token 本身每次 `dsh web` 启动轮换。App 收到 401 会自动用保存的
@@ -85,6 +90,8 @@ DSH Web UI 默认只绑 loopback。手机要进来,必须有人在 0.0.0.0 上�
 
 - lan-gate 转发一律打到 `127.0.0.1:<目标>`——它只解决「0.0.0.0 监听」,
   不解决「谁可以连」。审批+限流是它的防线;别把网关口暴露到公网。
+  `LAN_GATE_PASSWORD` 只在环境变量里(不写状态文件/日志),强度自担——
+  它是 LAN 场景便利项,公网场景请走桥隧道而非密码+端口映射。
 - `?token=` 等价于登录态,明文走 HTTP——只在可信 LAN 用。要出公网走
   dsh-bridge 的 Cloudflare 隧道(自带 TLS)而不是端口映射。
 - `lan-gate-state.json` 存审批列表与 adminKey,位于 `DSH_HOME`(默认 `~/.dsh`,
