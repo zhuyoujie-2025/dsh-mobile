@@ -17,24 +17,26 @@ GitHub Releases(公网兜底)或电脑端同网段订阅源。
 | 电脑端 | 装官方 DeepSeek Harness 桌面版,或跑 `dsh web`(任一口) |
 | 手机端 | 装 `DSHMobile.apk`,与电脑连同一 Wi-Fi,App 设置页点「自动搜索网关」 |
 
-App 会扫本网段常见入口端口(3088 lan-gate 插件/独立网关默认口 → 3083/3084
-dsh-bridge → 3089-3094 自管区间),命中后把整段地址(含 `?token=`)存进历史。
+App 会扫本网段常见入口端口(3088 lan-gate 插件/独立网关默认口 → 3082
+dsh-bridge 官方默认/3083-3084 顺延 → 3089-3094 自管区间),命中后把整段地址
+(含 `?token=`)存进历史。
 
-**推荐链路 = lan-gate 插件**(免 token、带设备审批页、限流防刷):
+**推荐链路 = lan-gate 网关**(免 token、带设备审批页、限流防刷):
 
 ```powershell
 # 电脑端任选其一:
-dsh plugin add dsh-mobile-gate          # A. 官方桥/内核内嵌,默认 0.0.0.0:3088
-node gate/lan-gate-server.cjs           # B. 独立进程,默认 0.0.0.0:3088 → 127.0.0.1:3080
+dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate   # A. 插件(上游仓库,默认 0.0.0.0:3088)
+node gate/lan-gate-server.cjs          # B. 本仓独立进程,默认 0.0.0.0:3088 → 127.0.0.1:3080
 ```
 
 然后电脑跑 `powershell -File tools/get-mobile-url.ps1`(自动挑真实 LAN IP 并复制
 `http://<ip>:3088/`),在 App 输入 → 手机停在「等待批准」→ 电脑浏览器开
 `http://127.0.0.1:3088/lan-gate/admin` 批准(选「手机」)→ 自动进 DSH。
 
-**备选链路 = 官方 dsh-bridge 预设插件**(桌面端内置,LAN 二维码/Cloudflare
-隧道/IM bot)。它默认暴露认证页——App 探测得到但需 `?token=`:
-`tools/get-mobile-url.ps1 -GatePort <桥端口> -Token <启动日志里的 token>`。
+**备选链路 = 官方 dsh-bridge 预设插件**(`@wenbin_wb/dsh-bridge`,桌面端内置,
+LAN 二维码/Cloudflare 隧道/IM bot)。桥默认 LAN 代理口 **3082**(被占顺延);
+它自带二维码 token/访问密码门禁并自动注入回环会话 cookie——**手机不需要
+DSH 原生 `?token=`**,在 App 里填桥控制台给出的带 token 链接即可。
 
 ## 手机端使用
 
@@ -65,7 +67,7 @@ node gate/lan-gate-server.cjs           # B. 独立进程,默认 0.0.0.0:3088 �
 |---|---|---|
 | 3080 | dsh web / 桌面内核(官方默认) | DSH 本体 |
 | **3088** | **lan-gate 默认口**(插件或独立 `gate/lan-gate-server.cjs`) | 本项目/插件 |
-| 3083-3084 | dsh-bridge LAN 代理常见口 | 官方预设插件 |
+| **3082** | **dsh-bridge LAN 代理官方默认口**(被占顺延 3083/3084) | 官方预设插件 |
 | 3089-3094 | 自管区间:网关顺延、多实例、APK 订阅源 3093 | 本机约定 |
 | 3105-3108 | lan-gate EADDRINUSE 顺延尾段 | lan-gate 自择 |
 
@@ -103,3 +105,5 @@ JDK 8+ 走 `JAVA_HOME`/`PATH`/常见 `/opt/jdk25`。签名默认用项目内调�
 - v1.4: 内置 loopback 转发器;补 `REQUEST_INSTALL_PACKAGES` 自动拉起安装器。
 - v1.5: 开源通用化——探测签名覆盖官方 bridge/内核页、端口表去本机化、
   更新源公网兜底、setup 文案与迁移逻辑去机主特定值。
+- v1.5.1: 端口表补 **3082**(dsh-bridge 官方默认代理口,v1.5 漏列,干净官方
+  环境下自动搜索会漏桥);文档修正插件安装命令(git URL)与桥自有门禁模型。

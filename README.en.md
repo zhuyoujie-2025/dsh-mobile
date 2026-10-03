@@ -19,23 +19,26 @@ phone app → [lan-gate | dsh-bridge | direct dsh web] → DSH Web UI on the PC
 | phone | Install `DSHMobile.apk`, join the same Wi-Fi, tap "auto-search gateway" in setup |
 
 The app scans common entry ports on your subnet (3088 lan-gate default →
-3083/3084 dsh-bridge → 3089-3094 community range) and stores the full address
-(including `?token=`) in history.
+3082 dsh-bridge official default / 3083-3084 bumped → 3089-3094 community
+range) and stores the full address (including `?token=`) in history.
 
-**Recommended path = lan-gate plugin** (no token, device approval page, rate limit):
+**Recommended path = lan-gate gateway** (no token, device approval, rate limit):
 
 ```powershell
-dsh plugin add dsh-mobile-gate          # embedded, default 0.0.0.0:3088
-node gate/lan-gate-server.cjs           # standalone, default 0.0.0.0:3088 -> 127.0.0.1:3080
+dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate   # plugin (upstream repo, 0.0.0.0:3088)
+node gate/lan-gate-server.cjs           # standalone from this repo, 0.0.0.0:3088 -> 127.0.0.1:3080
 ```
 
 Then on the PC run `powershell -File tools/get-mobile-url.ps1` to copy
 `http://<lan-ip>:3088/`; enter it in the app → phone shows "waiting for approval"
 → open `http://127.0.0.1:3088/lan-gate/admin` on the PC and approve → DSH loads.
 
-**Fallback = official `dsh-bridge` preset plugin** (LAN QR / Cloudflare tunnel /
-IM bots). Its default port is detected, but it requires `?token=`:
-`tools/get-mobile-url.ps1 -GatePort <bridge-port> -Token <token-from-boot-log>`.
+**Fallback = official `dsh-bridge` preset plugin** (`@wenbin_wb/dsh-bridge`,
+bundled with the desktop app: LAN QR / Cloudflare tunnel / IM bots). Its LAN
+proxy defaults to **3082** (bumps when occupied). The bridge has its own QR
+token / password gate and injects the loopback session cookie itself — **the
+phone does NOT need DSH's native `?token=`**; paste the token link shown in the
+bridge console into the app.
 
 ## Behavior highlights (v1.5)
 
@@ -58,7 +61,7 @@ IM bots). Its default port is detected, but it requires `?token=`:
 |---|---|---|
 | 3080 | dsh web / desktop kernel (official default) | DSH |
 | **3088** | **lan-gate default** (plugin or standalone `gate/lan-gate-server.cjs`) | this project |
-| 3083-3084 | dsh-bridge LAN proxy common ports | official preset plugin |
+| **3082** | **dsh-bridge LAN proxy official default** (bumps to 3083/3084) | official preset plugin |
 | 3089-3094 | community range: gate overflow, multi-instance, APK feed on 3093 | local convention |
 | 3105-3108 | lan-gate EADDRINUSE tail | lan-gate |
 

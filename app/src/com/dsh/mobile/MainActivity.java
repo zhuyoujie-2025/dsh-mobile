@@ -62,8 +62,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * DSH Mobile —— 纯 Android Framework 的 WebView 壳 (v1.5 开源通用版)。
+ * DSH Mobile —— 纯 Android Framework 的 WebView 壳 (v1.5.1 开源通用版)。
  * 经 lan-gate / dsh-bridge 网关连接电脑上的 DSH (DeepSeek Harness) Web UI。
+ * v1.5.1: 端口表补 3082(dsh-bridge 官方默认代理口,此前漏掉会扫不到官方桥)
  * v1.1: 401 自动重新认证 / 官方鲸鱼图标 / 内网版本订阅自动更新 / 全文可选中复制
  * v1.2: 加载失败不再静默黑屏——主框架 onReceivedError 回设置页带原因、
  *       onRenderProcessGone 自动重载一次、顶栏显示连接态、设置页新增「自动搜索网关」
@@ -797,9 +798,9 @@ public class MainActivity extends Activity {
     }
 
     /** 端口优先级:先用当前地址里的端口,再按常见网关口补扫。
-     *  3088=lan-gate 插件/独立网关默认口(dsh plugin add dsh-mobile-gate 或
+     *  3088=lan-gate 插件/独立网关默认口(dsh plugin add <git url> 或
      *  node gate/lan-gate-server.cjs,EADDRINUSE 时最多顺延 +20 到 3108);
-     *  3083/3084=dsh-bridge 常见代理口(官方预设桥插件);
+     *  3082=dsh-bridge 官方默认代理口(@wenbin_wb/dsh-bridge,被占顺延 3083/3084);
      *  3089-3094=常见自管网关/订阅源区间;3105-3108 顺带兜 lan-gate 顺延尾段。 */
     private int[] preferredPorts(String url) {
         int first = 3088;
@@ -809,7 +810,7 @@ public class MainActivity extends Activity {
                 if (u.getPort() > 0) first = u.getPort();
             }
         } catch (Exception ignored) { }
-        int[] rest = {3088, 3083, 3084, 3089, 3090, 3091, 3092, 3094, 3105, 3106, 3107, 3108};
+        int[] rest = {3088, 3082, 3083, 3084, 3089, 3090, 3091, 3092, 3094, 3105, 3106, 3107, 3108};
         List<Integer> out = new ArrayList<Integer>();
         out.add(first);
         for (int p : rest) if (p != first && !out.contains(p)) out.add(p);

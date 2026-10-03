@@ -25,8 +25,8 @@ DSH Web UI 默认只绑 loopback。手机要进来,必须有人在 0.0.0.0 上�
 
 | 入口 | 默认口 | 认证 | 签名(App 探测) | 备注 |
 |---|---|---|---|---|
-| lan-gate(插件 `dsh-mobile-gate` 或 `gate/lan-gate-server.cjs`) | 3088(顺延+1..+20) | 设备审批,免 token | 页含 `lan-gate`/`/?t=` | **推荐**:审批页 `/lan-gate/admin`,限流 120 req/min/IP |
-| dsh-bridge(桌面版官方预设插件) | 常见 3083/3084 | `?token=` → cookie | 页含 `DeepSeek Harness`/`dsh-bridge` | 另有 Cloudflare 隧道、IM bot 通道 |
+| lan-gate(上游插件 `dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate`,或本仓 `gate/lan-gate-server.cjs`) | 3088(顺延+1..+20) | 设备审批,免 token | 页含 `lan-gate`/`/?t=` | **推荐**:审批页 `/lan-gate/admin`,限流 120 req/min/IP |
+| dsh-bridge(`@wenbin_wb/dsh-bridge`,桌面版官方预设插件) | **3082**(被占顺延 3083/3084) | 桥自有门禁:二维码 256-bit token / 访问密码;转发时自动注入回环会话 cookie | 页含 `DeepSeek Harness`/`dsh-bridge` | 手机用桥控制台给的带 token 链接;另有 Cloudflare 隧道、IM bot |
 | dsh web 直接绑 0.0.0.0 | 3080 或自定义 | `?token=` → cookie | 401 页含 `dsh web authentication` | 无网关功能,直连内核 |
 
 ## 2. 认证模型
@@ -34,10 +34,14 @@ DSH Web UI 默认只绑 loopback。手机要进来,必须有人在 0.0.0.0 上�
 - **lan-gate**:无 token。首次访问手机被挂起在「等待批准」页;
   电脑端打开 `http://127.0.0.1:<口>/lan-gate/admin`(loopback 免鉴权)批准设备,
   网关给手机种 cookie,之后同设备直连。
-- **token 系**(dsh web / dsh-bridge):入口地址形如 `http://IP:PORT/?token=XXXX`。
+- **token 系**(dsh web 直连):入口地址形如 `http://IP:PORT/?token=XXXX`。
   token 是一次性引导凭证——拿到后立刻换 30 天会话 cookie,**cookie 跨服务端
   重启仍有效**;token 本身每次 `dsh web` 启动轮换。App 收到 401 会自动用保存的
   `?token=` 地址重签一次,只有 token 也失效(服务端重启 + 旧 cookie 过期)才回设置页。
+- **dsh-bridge 自有门禁**:桥插件带独立的二维码 256-bit token 与可选访问密码,
+  并在转发时自动注入合法的 DSH 回环会话 cookie——**经桥访问的手机完全不接触
+  DSH 原生 `?token=`**。App 端只要把桥控制台展示的带 token 链接填进去即可;
+  桥 token 可由管理员在控制台一键轮换。
 
 ## 3. App 侧三个非显而易见的做法
 
@@ -58,7 +62,7 @@ DSH Web UI 默认只绑 loopback。手机要进来,必须有人在 0.0.0.0 上�
 ## 4. 发现协议(复刻清单)
 
 ```
-对每个候选 host ∈ 本网段 /24, port ∈ [已存口, 3088, 3083, 3084, 3089..3094, 3105..3108]:
+对每个候选 host ∈ 本网段 /24, port ∈ [已存口, 3088, 3082, 3083, 3084, 3089..3094, 3105..3108]:
     TCP connect (700ms) → 发 "GET / HTTP/1.0" (1.2s 读窗) →
     响应头 3KB 内含任一签名即命中:
         "lan-gate" | "/?t=" | "dsh web authentication" |
