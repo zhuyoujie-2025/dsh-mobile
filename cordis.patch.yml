@@ -1,0 +1,12 @@
+# dsh-mobile — bundle patch layer
+#
+# Applied when a profile lists this package in dsh.profile.bundles
+# (installed via `dsh plugin add https://github.com/zhuyoujie-2025/dsh-mobile`
+# or a local path). The row references the package by name; Node resolution
+# finds gate/lan-gate.mjs via this package's `main`.
+# Optional per-plugin config keys (read by gate/lan-gate.mjs):
+#   listenPort / listenHost / targetPort / auto(first|all|off) /
+#   password / credentials
+- insert:
+    - id: dsh-mobile
+      name: dsh-mobile

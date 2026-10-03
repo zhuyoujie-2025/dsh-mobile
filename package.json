@@ -1,0 +1,27 @@
+{
+  "name": "dsh-mobile",
+  "version": "1.5.1",
+  "description": "DSH Mobile — Android WebView shell + zero-touch LAN gateway plugin for DeepSeek Harness. 手机壳 + 零操作局域网网关插件。",
+  "license": "MIT",
+  "type": "module",
+  "main": "gate/lan-gate.mjs",
+  "files": [
+    "gate/",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhuyoujie-2025/dsh-mobile.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
