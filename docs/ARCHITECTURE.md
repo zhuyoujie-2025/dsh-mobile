@@ -36,8 +36,10 @@ DSH Web UI 默认只绑 loopback。手机要进来,必须有人在 0.0.0.0 上�
   `http://127.0.0.1:<口>/lan-gate/admin`(loopback 免鉴权)批准设备;
   b) **共享口令**(`LAN_GATE_PASSWORD` 非空时,本仓独立版特性):等待页变为
   登录页,输对密码即批准(`POST /lan-gate/login`,timingSafeEqual 比较,
-  同 IP 8 次错误锁 10 分钟)——这就是"桌面端与移动版登同一个口令"模式,
-  手机端全程不需要电脑配合。
+  同 IP 8 次错误锁 10 分钟);或入口地址直接带 `?pw=<密码>` 票据直通——
+  首访即自助批准,连登录页都不出现,地址本身就是凭证(同 dsh-bridge
+  二维码 token 链接模型)——这就是"桌面端与移动版登同一个口令"模式,
+  手机端全程不需要电脑配合。显式 deny 的 IP 两种口令方式都不放行。
   两种方式网关都给设备种 `lg_token` cookie,之后同设备直连。
 - **token 系**(dsh web 直连):入口地址形如 `http://IP:PORT/?token=XXXX`。
   token 是一次性引导凭证——拿到后立刻换 30 天会话 cookie,**cookie 跨服务端

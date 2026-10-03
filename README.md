@@ -35,7 +35,10 @@ LAN_GATE_PASSWORD=<你的访问密码> node gate/lan-gate-server.cjs
 
 然后电脑跑 `powershell -File tools/get-mobile-url.ps1`(自动挑真实 LAN IP 并复制
 `http://<ip>:3088/`),在 App 输入 → 手机首访:
-- **设了密码**:等待页即登录页,输同一个密码即进(无需电脑端任何操作)
+- **设了密码 + 入口地址带 `?pw=<密码>`**(`get-mobile-url.ps1 -Password <密码>`
+  一键生成):首访即自助批准,**连登录页都不出现**——地址本身就是"账号",
+  存进 App 后永久免操作
+- **设了密码但地址没带 `?pw=`**:等待页即登录页,输同一个密码即进
 - **没设密码**:停在「等待批准」→ 电脑浏览器开 `http://127.0.0.1:3088/lan-gate/admin` 批准(选「手机」)→ 自动进 DSH
 
 **备选链路 = 官方 dsh-bridge 预设插件**(`@wenbin_wb/dsh-bridge`,桌面端内置,

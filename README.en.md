@@ -36,8 +36,11 @@ LAN_GATE_PASSWORD=<your-password> node gate/lan-gate-server.cjs
 
 Then on the PC run `powershell -File tools/get-mobile-url.ps1` to copy
 `http://<lan-ip>:3088/`; enter it in the app → first visit:
-- **password set**: the page IS a login form — enter the same password, you're in
-  (no PC-side action at all)
+- **password set + URL carries `?pw=<password>`** (`get-mobile-url.ps1 -Password`
+  prints it): self-approves instantly — **no login screen at all**, the address
+  itself is the credential; saved once, works forever
+- **password set, plain URL**: the page IS a login form — enter the same
+  password, you're in (no PC-side action)
 - **no password**: phone shows "waiting for approval" → open
   `http://127.0.0.1:3088/lan-gate/admin` on the PC and approve → DSH loads
 

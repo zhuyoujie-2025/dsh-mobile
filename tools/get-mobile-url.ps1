@@ -4,7 +4,7 @@
 # 用 -Token 附上 ?token= (token 在 dsh web 启动日志或桥插件二维码页可见)。
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File get-mobile-url.ps1 [-GatePort 3088] [-Token abc]
 
-param([int]$GatePort = 3088, [string]$Token = '')
+param([int]$GatePort = 3088, [string]$Token = '', [string]$Password = '')
 
 # 挑手机能到的真实 LAN IP: 物理网卡(排除 VMware/Tailscale/Mihomo/WSL/蓝牙等虚拟口), 优先默认路由所在接口
 $virtual = 'vEthernet|VMware|VirtualBox|Tailscale|Mihomo|Loopback|蓝牙|Bluetooth|WSL|Hyper-V|本地连接'
@@ -16,7 +16,7 @@ $ip = ($cands | Where-Object { $_.InterfaceIndex -eq $defIf } | Select-Object -F
 if (-not $ip) { $ip = ($cands | Select-Object -First 1 -ExpandProperty IPAddress) }
 if (-not $ip) { Write-Host "FAIL: 没找到可用 LAN IP"; exit 1 }
 
-$url = "http://${ip}:$GatePort/" + $(if ($Token) { "?token=$Token" } else { '' })
+$url = "http://${ip}:$GatePort/" + $(if ($Token) { "?token=$Token" } elseif ($Password) { "?pw=$Password" } else { '' })
 Write-Host ""
 Write-Host "手机与电脑同一局域网时, 在 App 里输入:"
 Write-Host "  $url" -ForegroundColor Cyan
