@@ -17,7 +17,8 @@ GitHub Releases(公网兜底)或电脑端同网段订阅源。
 | 电脑端 | 装官方 DeepSeek Harness 桌面版,或跑 `dsh web`(任一口) |
 | 手机端 | 装 `DSHMobile.apk`,与电脑连同一 Wi-Fi,App 设置页点「自动搜索网关」 |
 
-App 会扫本网段常见入口端口(3088 lan-gate 插件/独立网关默认口及其顺延段
+App 先向本网段发 UDP 广播 `DSH-GATE?`(lan-gate v1.6+ 在 UDP 30900 应答,
+~1.6s 出结果),无应答再退回 TCP 扫常见入口端口(3088 lan-gate 默认口及顺延段
 3089-3108 → 3082 dsh-bridge 官方默认/3083-3084 顺延),命中后把整段地址
 (含 `?token=`)存进历史。
 
@@ -58,15 +59,23 @@ LAN 二维码/Cloudflare 隧道/IM bot)。桥默认 LAN 代理口 **3082**(被�
 
 1. **装 APK**: 把 `dist/DSHMobile.apk` 传到手机安装(允许未知来源)。
 2. **放行防火墙**(仅独立网关需要): 管理员运行 `tools/allow-gate-firewall.ps1`
-   (放行 TCP 3088-3108 入站,覆盖 lan-gate 顺延全段;若你的网关用其他口自行放行)。
+   (放行 TCP 3088-3108 + UDP 30900 入站;若你的网关用其他口自行放行)。
 3. **App 自动搜索** → 直接进 DSH(默认首台设备自动配对+上游会话注入,
    无密码/无 token/无审批)。会话 30 天 cookie,主本重启不失效。
    手动输地址可用 `tools/get-mobile-url.ps1` 生成。
+4. **扫码/点链接零输入**(v1.6+):入口地址可编成
+   `dshmobile://connect?url=<URL编码后地址>`——手机相机扫二维码或点链接
+   即拉起 App 自动接管;带 `?pw=<访问密码>` 的地址连密码页都跳过。
 
-## 行为要点(v1.5)
+## 行为要点(v1.6)
 
-- **发现**: 设置页「自动搜索网关」= 扫 /24 网段 × 端口优先级表;签名认
-  lan-gate 页 / `dsh web authentication` 401 / `DeepSeek Harness`/`dsh-bridge` 桥页。
+- **发现**: 设置页「自动搜索网关」与断线自愈 = UDP 广播 `DSH-GATE?`(30900)
+  优先 → 退回扫 /24 网段 × 端口优先级表;签名认 lan-gate 页 /
+  `dsh web authentication` 401 / `DeepSeek Harness`/`dsh-bridge` 桥页。
+  电脑换 IP 后手机秒级找回新地址,不再干等全段扫描。
+- **任意入口**(v1.6+):`https://` 地址直连不经转发器——你有自己的隧道/
+  公网域名/IPv6 入口时直接填,App 不捆绑任何第三方服务;`dshmobile://`
+  深链可把入口塞进二维码/链接。
 - **连接稳定**: 内置 TCP 转发器(WebView 恒打 `127.0.0.1:<LPORT>`)→ DSH 前端
   判 loopback 受信任,设置走 host 持久化、cookie 不随电脑换 IP 失效。
   主框架加载失败自动重扫网段找回入口,不黑屏。
@@ -89,6 +98,7 @@ LAN 二维码/Cloudflare 隧道/IM bot)。桥默认 LAN 代理口 **3082**(被�
 | **3088** | **lan-gate 默认口**(插件或独立 `gate/lan-gate-server.cjs`) | 本项目/插件 |
 | **3082** | **dsh-bridge LAN 代理官方默认口**(被占顺延 3083/3084) | 官方预设插件 |
 | 3089-3108 | lan-gate EADDRINUSE 顺延段(整段被 App 扫口覆盖;3093=APK 订阅源约定) | lan-gate 自择 |
+| UDP 30900 | lan-gate 发现应答口(App 广播 `DSH-GATE?` → 回当前端口;`LAN_GATE_DISCOVERY_PORT` 可改) | lan-gate |
 
 ## 重新构建
 
@@ -130,6 +140,10 @@ JDK 8+ 走 `JAVA_HOME`/`PATH`/常见 `/opt/jdk25`。签名默认用项目内调�
   3088-3097 全被占用时落到 3098,v1.5.1 只兜 3105-3108 尾段会漏检;
   防火墙脚本同步放宽到 3088-3108;README 接入本仓即插件
   (`dsh plugin add <本仓>`)。
+- v1.6.0: 发现机制升级——lan-gate 新增 UDP 30900 广播应答,App 发现与断线
+  自愈先走 UDP(~1.6s)再退回全段 TCP 扫;新增 `https://` 直连入口(任意
+  固定端点不经转发器)与 `dshmobile://connect?url=` 深链(扫码/点链接即
+  接入,可带 `?pw=` 直通密码页);防火墙脚本补 UDP 30900 放行。
 - **2026-10-04 网关侧修复**(不动 APK):会话注入的密钥取自错误 home
   (Windows 独立网关打 WSL 主本时注入被 401——手机被弹回"填 token"页)。
   现启动时自动枚举全部候选 home 并逐一实射 `GET /` 验证取真钥;

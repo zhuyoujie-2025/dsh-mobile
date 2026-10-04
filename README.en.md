@@ -18,10 +18,11 @@ phone app → [lan-gate | dsh-bridge | direct dsh web] → DSH Web UI on the PC
 | PC | Install official DeepSeek Harness Desktop, or run `dsh web` on any port |
 | phone | Install `DSHMobile.apk`, join the same Wi-Fi, tap "auto-search gateway" in setup |
 
-The app scans common entry ports on your subnet (3088 lan-gate default plus
-its full overflow range 3089-3108 → 3082 dsh-bridge official default /
-3083-3084 bumped) and stores the full address (including `?token=`) in
-history.
+The app first broadcasts `DSH-GATE?` over UDP (lan-gate v1.6+ answers on UDP
+30900, ~1.6s), then falls back to a TCP scan of common entry ports on your
+subnet (3088 lan-gate default plus its full overflow range 3089-3108 → 3082
+dsh-bridge official default / 3083-3084 bumped) and stores the full address
+(including `?token=`) in history.
 
 **Recommended path = lan-gate gateway** (zero-touch: no password, no token,
 no approval page):
@@ -62,10 +63,18 @@ proxy defaults to **3082** (bumps when occupied). The bridge has its own QR
 token / password gate and also injects the loopback session cookie — paste the
 token link shown in the bridge console into the app.
 
-## Behavior highlights (v1.5)
+## Behavior highlights (v1.6)
 
-- **Discovery**: signature scan covers lan-gate page / `dsh web authentication`
-  401 / `DeepSeek Harness`/`dsh-bridge` bridge pages.
+- **Discovery**: UDP broadcast `DSH-GATE?` (30900) first → fallback to a
+  signature scan of the /24 subnet × preferred port table covering lan-gate
+  page / `dsh web authentication` 401 / `DeepSeek Harness`/`dsh-bridge`
+  bridge pages. When the PC changes IP, the phone re-finds the new address
+  in about a second instead of grinding a full port scan.
+- **Any endpoint** (v1.6+): `https://` addresses connect directly without the
+  forwarder — point the app at your own tunnel / public domain / IPv6 entry;
+  the app bundles no third-party service. The `dshmobile://connect?url=`
+  deep link turns an entry address into a scannable QR / tappable link
+  (an address with `?pw=` skips the gate password page too).
 - **Stable connection**: built-in loopback TCP forwarder → DSH frontend trusts
   host-persisted settings; cookies survive IP changes. Main-frame failure
   triggers a subnet rescan — no black screen.
@@ -91,6 +100,7 @@ token link shown in the bridge console into the app.
 | **3088** | **lan-gate default** (plugin or standalone `gate/lan-gate-server.cjs`) | this project |
 | **3082** | **dsh-bridge LAN proxy official default** (bumps to 3083/3084) | official preset plugin |
 | 3089-3108 | lan-gate EADDRINUSE overflow range — all scanned by the app; 3093 = APK feed convention | lan-gate |
+| UDP 30900 | lan-gate discovery reply (app broadcasts `DSH-GATE?` → answers with its live port; `LAN_GATE_DISCOVERY_PORT` overrides) | lan-gate |
 
 ## Rebuild
 

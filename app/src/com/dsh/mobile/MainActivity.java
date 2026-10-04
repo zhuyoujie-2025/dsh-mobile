@@ -44,6 +44,8 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -87,13 +89,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *         无入口地址也能手动检查更新
  *       - 迁移/文案不再含单机端口约定,任何装了 lan-gate/dsh-bridge 的
  *         官方桌面端或 `dsh web` 实例都能以同一方式接入
+ * v1.6: UDP 广播快发现(lan-gate 应答 DSH-GATE,~1.6s,电脑换 IP 断线秒级自愈,
+ *       免全段扫描);https 入口直连(任意固定域名/公网端点,不经转发器);
+ *       dshmobile://connect?url= 深链,扫码/点链接即完成接入
  */
 public class MainActivity extends Activity {
     private static final String PREFS = "dsh_mobile";
     private static final String KEY_URL = "url";
     private static final String KEY_TARGET = "target"; // "host:port" 真实网关
     private static final String KEY_QUERY = "query";   // "?token=..." 可空
+    private static final String KEY_DIRECT = "direct"; // https 完整直连入口(公网/IPv6,不经转发器)
     private static final String KEY_HIST = "hist";
+    private static final int DISCOVERY_PORT = 30900;   // lan-gate UDP 发现应答口(独立于 TCP 顺延段)
     private static final int HIST_MAX = 8;
     private static final int FEED_PORT = 3093;          // 同网段订阅源约定口(tools/start-apk-feed)
     private static final String PUBLIC_FEED =           // 公网兜底更新源(GitHub Releases 最新版资产)
@@ -106,6 +113,7 @@ public class MainActivity extends Activity {
     private boolean webMode = false;
     private TcpForwarder fwd;
     private int rescanFails = 0;   // 主框架失败后已自动重扫次数,防死循环
+    private boolean useDirect = false; // 当前页=https 直连入口(不经本地转发器)
     private long dlId = -1;
     private BroadcastReceiver dlReceiver;
     private TextView titleView;
@@ -149,13 +157,36 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         CookieManager.getInstance().setAcceptCookie(true);
         migrateSavedUrl();
-        String target = prefs.getString(KEY_TARGET, null);
-        if (target != null && ensureForwarder(target)) {
-            showWeb(localUrl());
-        } else {
-            showSetup();
+        if (!handleDeepLink(getIntent())) {
+            String direct = prefs.getString(KEY_DIRECT, null);
+            String target = prefs.getString(KEY_TARGET, null);
+            if (direct != null && direct.length() > 0) {
+                useDirect = true;
+                showWeb(direct);
+            } else if (target != null && ensureForwarder(target)) {
+                showWeb(localUrl());
+            } else {
+                showSetup();
+            }
         }
         checkUpdate(false);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        handleDeepLink(intent);
+    }
+
+    /** 相机/链接点开的 dshmobile://connect?url=<编码后入口地址> → 直接接管连接。 */
+    private boolean handleDeepLink(Intent in) {
+        if (in == null || in.getData() == null) return false;
+        Uri d = in.getData();
+        if (!"dshmobile".equals(d.getScheme())) return false;
+        String url = d.getQueryParameter("url");
+        if (url == null || url.length() == 0) return false;
+        connect(url);
+        return true;
     }
 
     /** v1.3- 的 KEY_URL 是真实网关地址;v1.4 拆成 KEY_TARGET(host:port)+KEY_QUERY。 */
@@ -180,6 +211,15 @@ public class MainActivity extends Activity {
         int lp = (fwd != null) ? fwd.localPort() : LOCAL_PORT_BASE;
         String q = prefs.getString(KEY_QUERY, "");
         return "http://127.0.0.1:" + lp + "/" + (q != null ? q : "");
+    }
+
+    /** 「主页」与401重载统一入口:https 直连模式回原地址,否则回本地转发器。 */
+    private String entryUrl() {
+        if (useDirect) {
+            String d = prefs.getString(KEY_DIRECT, null);
+            if (d != null && d.length() > 0) return d;
+        }
+        return localUrl();
     }
 
     /** 启动/重指本地转发器;成功返回 true。target 形如 "host:port"。 */
@@ -386,7 +426,7 @@ public class MainActivity extends Activity {
         Button home = barButton("主页");
         home.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                if (web != null) web.loadUrl(localUrl());
+                if (web != null) web.loadUrl(entryUrl());
             }
         });
         bar.addView(home);
@@ -450,7 +490,7 @@ public class MainActivity extends Activity {
                 // 401:尚有未消费的 ?token= 则重载一次再认证;否则回设置页引导重取地址
                 if (!req.isForMainFrame() || resp.getStatusCode() != 401) return;
                 if (prefs.getString(KEY_QUERY, "").contains("token=")) {
-                    view.loadUrl(localUrl());
+                    view.loadUrl(entryUrl());
                 } else {
                     showSetup("登录态失效,且当前地址不带 ?token=。\n回电脑端重新获取带 token 的完整地址再连一次。");
                 }
@@ -669,14 +709,27 @@ public class MainActivity extends Activity {
     // ---------- 数据与杂项 ----------
 
     private void connect(String url) {
-        // url = 真实网关地址(用户输入/历史/扫描结果);WebView 走 127.0.0.1 转发器
+        // url = 真实入口地址(用户输入/历史/扫描/深链);http 走 127.0.0.1 转发器,https 直连
         Uri uri = Uri.parse(url);
         String host = uri.getHost();
         if (host == null || host.length() == 0) {
             Toast.makeText(this, "地址无法解析", Toast.LENGTH_SHORT).show();
             return;
         }
-        int port = uri.getPort() > 0 ? uri.getPort() : ("https".equals(uri.getScheme()) ? 443 : 80);
+        if ("https".equals(uri.getScheme())) {
+            // 公网/IPv6 等自带 TLS 的固定域名入口:无需转发器,域名不变 cookie 即稳定
+            useDirect = true;
+            prefs.edit()
+                    .putString(KEY_URL, url)
+                    .putString(KEY_DIRECT, url)
+                    .apply();
+            pushHistory(url);
+            rescanFails = 0;
+            showWeb(url);
+            return;
+        }
+        useDirect = false;
+        int port = uri.getPort() > 0 ? uri.getPort() : 80;
         String q = uri.getEncodedQuery();
         if (!ensureForwarder(host + ":" + port)) {
             showSetup("本地转发端口全部占用(3090-3099),重启 App 再试");
@@ -686,6 +739,7 @@ public class MainActivity extends Activity {
                 .putString(KEY_URL, url)
                 .putString(KEY_TARGET, host + ":" + port)
                 .putString(KEY_QUERY, q != null && q.length() > 0 ? "?" + q : "")
+                .remove(KEY_DIRECT)
                 .apply();
         pushHistory(url);
         rescanFails = 0;
@@ -711,6 +765,7 @@ public class MainActivity extends Activity {
                         if (found != null) {
                             ensureForwarder(found[0] + ":" + found[1]);
                             prefs.edit().putString(KEY_TARGET, found[0] + ":" + found[1]).apply();
+                            useDirect = false; // 回落到 LAN 网关,后续入口走转发器
                             setBarTitle("已找回网关 " + found[0] + ":" + found[1]);
                             if (web != null) web.loadUrl(localUrl());
                         } else {
@@ -755,8 +810,10 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    /** 扫手机所在网段的网关端口;多口命中时按 preferredPorts 顺序择优,找不到返回 null。 */
+    /** 扫手机所在网段的网关端口;先 UDP 广播快发现(秒级),再无应答退回全段 TCP 扫。 */
     private String[] scanSubnet(String currentUrl) {
+        String[] udp = discoverGateUdp();
+        if (udp != null) return udp;
         int[] ports = preferredPorts(currentUrl);
         List<String> hosts = subnetHosts();
         final AtomicBoolean stop = new AtomicBoolean(false);
@@ -795,6 +852,69 @@ public class MainActivity extends Activity {
     private static int portRank(int p, int[] pref) {
         for (int i = 0; i < pref.length; i++) if (pref[i] == p) return i;
         return pref.length;
+    }
+
+    /** 本网段定向广播地址 + 全向广播,去重。 */
+    private List<String> broadcastAddrs() {
+        List<String> out = new ArrayList<String>();
+        out.add("255.255.255.255");
+        try {
+            Enumeration<NetworkInterface> ifs = NetworkInterface.getNetworkInterfaces();
+            while (ifs != null && ifs.hasMoreElements()) {
+                NetworkInterface ni = ifs.nextElement();
+                try { if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) continue; } catch (Exception e) { continue; }
+                for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
+                    InetAddress a = ia.getAddress();
+                    if (!(a instanceof Inet4Address) || a.isLoopbackAddress()) continue;
+                    InetAddress b = ia.getBroadcast();
+                    if (b != null) {
+                        String s = b.getHostAddress();
+                        if (s != null && !out.contains(s)) out.add(s);
+                    }
+                }
+            }
+        } catch (Exception ignored) { }
+        return out;
+    }
+
+    /** UDP 广播快发现:发 DSH-GATE?,网关回 DSH-GATE {"port":N}(N=实际口);
+     *  每个应答再经 TCP 签名复核(probeGate)防串台。~1.6s 出结果,无应答返回 null。 */
+    private String[] discoverGateUdp() {
+        DatagramSocket s = null;
+        List<String[]> cands = new ArrayList<String[]>();
+        try {
+            s = new DatagramSocket();
+            s.setBroadcast(true);
+            s.setSoTimeout(250);
+            byte[] probe = "DSH-GATE?".getBytes("UTF-8");
+            for (String b : broadcastAddrs()) {
+                try {
+                    s.send(new DatagramPacket(probe, probe.length,
+                            InetAddress.getByName(b), DISCOVERY_PORT));
+                } catch (Exception ignored) { }
+            }
+            long deadline = System.currentTimeMillis() + 1600;
+            while (System.currentTimeMillis() < deadline) {
+                DatagramPacket p = new DatagramPacket(new byte[512], 512);
+                try { s.receive(p); } catch (Exception e) { continue; }
+                String t = new String(p.getData(), 0, p.getLength(), "UTF-8");
+                if (!t.startsWith("DSH-GATE ")) continue;
+                int i = t.indexOf("\"port\":");
+                if (i < 0) continue;
+                int j = i + 7, k = j;
+                while (k < t.length() && Character.isDigit(t.charAt(k))) k++;
+                if (k == j) continue;
+                cands.add(new String[]{ p.getAddress().getHostAddress(), t.substring(j, k) });
+            }
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (s != null) try { s.close(); } catch (Exception ignored) { }
+        }
+        for (String[] c : cands) {
+            if (probeGate(c[0], Integer.parseInt(c[1]))) return c;
+        }
+        return null;
     }
 
     /** 端口优先级:先用当前地址里的端口,再按常见网关口补扫。

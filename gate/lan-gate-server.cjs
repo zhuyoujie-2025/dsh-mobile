@@ -1,4 +1,4 @@
-const os=require('node:os'),crypto=require('node:crypto'),http=require('node:http'),net=require('node:net'),fs=require('node:fs'),path=require('node:path');
+const os=require('node:os'),crypto=require('node:crypto'),http=require('node:http'),net=require('node:net'),dgram=require('node:dgram'),fs=require('node:fs'),path=require('node:path');
 var PROXY_PORT=Number(process.env.LAN_GATE_PORT||3088);
 const LISTEN_HOST=process.env.LAN_GATE_HOST||'0.0.0.0';
 const RATE_LIMIT_PER_MIN=120;
@@ -79,6 +79,9 @@ server.on('clientError',function(e,socket){try{socket.end('HTTP/1.1 400 Bad Requ
 var maxPort=PROXY_PORT+20;
 server.on('error',function(err){if(err&&err.code==='EADDRINUSE'&&PROXY_PORT<maxPort){PROXY_PORT+=1;try{server.listen(PROXY_PORT,LISTEN_HOST)}catch(e2){console.error('[lan-gate] listen failed: '+String(e2&&e2.message||e2));process.exit(1)}return}console.error('[lan-gate] server error: '+String(err&&err.message?err.message:err));process.exit(1)})
 server.listen(PROXY_PORT,LISTEN_HOST,function(){console.log('[lan-gate] listening on '+LISTEN_HOST+':'+PROXY_PORT+' -> '+TARGET_HOST+':'+TARGET_PORT)})
+/* UDP 发现应答：App 网段广播 DSH-GATE? → 回 DSH-GATE {"port":N}（N=当前实际口,顺延也正确）。
+   电脑换 IP 后手机秒级找回,免全段 TCP 扫描；reuseAddr 容许同机多网关各自应答。 */
+try{var UDP_PORT=Number(process.env.LAN_GATE_DISCOVERY_PORT||30900);var udp=dgram.createSocket({type:'udp4',reuseAddr:true});udp.on('message',function(m,r){if(String(m).indexOf('DSH-GATE?')!==0)return;try{udp.send('DSH-GATE '+JSON.stringify({name:'lan-gate',port:PROXY_PORT}),r.port,r.address)}catch(e){}});udp.on('error',function(e){console.log('[lan-gate] discovery udp off: '+String(e&&e.message||e))});udp.bind(UDP_PORT,function(){console.log('[lan-gate] discovery udp on :'+UDP_PORT)})}catch(e){}
 probeCredentials();
 var probeTimer=setInterval(function(){if(_sessSecret==='')probeCredentials()},60000);
 var sweep=setInterval(function(){var now=Date.now();rateMap.forEach(function(rate,ip){if(now-rate.started>=120000)rateMap.delete(ip)})},3000)

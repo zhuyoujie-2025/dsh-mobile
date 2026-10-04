@@ -88,6 +88,12 @@ DSH Web UI 默认只绑 loopback。手机要进来,必须有人在 0.0.0.0 上�
 ## 4. 发现协议(复刻清单)
 
 ```
+1) UDP 快发现(v1.6+, ~1.6s):向 255.255.255.255 与各网卡定向广播地址的
+   UDP 30900 发 "DSH-GATE?";lan-gate 应答 "DSH-GATE {"port":N}"
+   (N=当前实际口,顺延也正确)。每个应答再经 TCP 签名复核防串台。
+   LAN_GATE_DISCOVERY_PORT 可改口;reuseAddr 容许多网关共存应答。
+
+2) TCP 兜底扫描(UDP 无应答时):
 对每个候选 host ∈ 本网段 /24, port ∈ [已存口, 3088, 3082, 3083, 3084, 3089..3108]:
     TCP connect (700ms) → 发 "GET / HTTP/1.0" (1.2s 读窗) →
     响应头 3KB 内含任一签名即命中:
