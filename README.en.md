@@ -18,15 +18,17 @@ phone app → [lan-gate | dsh-bridge | direct dsh web] → DSH Web UI on the PC
 | PC | Install official DeepSeek Harness Desktop, or run `dsh web` on any port |
 | phone | Install `DSHMobile.apk`, join the same Wi-Fi, tap "auto-search gateway" in setup |
 
-The app scans common entry ports on your subnet (3088 lan-gate default →
-3082 dsh-bridge official default / 3083-3084 bumped → 3089-3094 community
-range) and stores the full address (including `?token=`) in history.
+The app scans common entry ports on your subnet (3088 lan-gate default plus
+its full overflow range 3089-3108 → 3082 dsh-bridge official default /
+3083-3084 bumped) and stores the full address (including `?token=`) in
+history.
 
 **Recommended path = lan-gate gateway** (zero-touch: no password, no token,
 no approval page):
 
 ```powershell
-dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate   # plugin (upstream repo, 0.0.0.0:3088)
+dsh plugin add https://github.com/zhuyoujie-2025/dsh-mobile       # this repo IS the plugin (recommended)
+dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate    # upstream plugin repo (equivalent)
 node gate/lan-gate-server.cjs           # standalone from this repo, 0.0.0.0:3088 -> 127.0.0.1:3080
 # or on Windows: tools\start-lan-gate.ps1  (auto-locates .credentials.yaml)
 ```
@@ -83,8 +85,7 @@ token link shown in the bridge console into the app.
 | 3080 | dsh web / desktop kernel (official default) | DSH |
 | **3088** | **lan-gate default** (plugin or standalone `gate/lan-gate-server.cjs`) | this project |
 | **3082** | **dsh-bridge LAN proxy official default** (bumps to 3083/3084) | official preset plugin |
-| 3089-3094 | community range: gate overflow, multi-instance, APK feed on 3093 | local convention |
-| 3105-3108 | lan-gate EADDRINUSE tail | lan-gate |
+| 3089-3108 | lan-gate EADDRINUSE overflow range — all scanned by the app; 3093 = APK feed convention | lan-gate |
 
 ## Rebuild
 

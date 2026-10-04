@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "DSH Mobile — Android WebView shell + zero-touch LAN gateway plugin for DeepSeek Harness. 手机壳 + 零操作局域网网关插件。",
   "license": "MIT",
   "type": "module",

@@ -17,15 +17,16 @@ GitHub Releases(公网兜底)或电脑端同网段订阅源。
 | 电脑端 | 装官方 DeepSeek Harness 桌面版,或跑 `dsh web`(任一口) |
 | 手机端 | 装 `DSHMobile.apk`,与电脑连同一 Wi-Fi,App 设置页点「自动搜索网关」 |
 
-App 会扫本网段常见入口端口(3088 lan-gate 插件/独立网关默认口 → 3082
-dsh-bridge 官方默认/3083-3084 顺延 → 3089-3094 自管区间),命中后把整段地址
+App 会扫本网段常见入口端口(3088 lan-gate 插件/独立网关默认口及其顺延段
+3089-3108 → 3082 dsh-bridge 官方默认/3083-3084 顺延),命中后把整段地址
 (含 `?token=`)存进历史。
 
 **推荐链路 = lan-gate 网关(零操作:不设密码、不用 token、不用审批页)**:
 
 ```powershell
 # 电脑端任选其一,一条命令完事:
-dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate   # A. 插件(上游仓库,默认 0.0.0.0:3088)
+dsh plugin add https://github.com/zhuyoujie-2025/dsh-mobile       # A. 本仓即插件(推荐,默认 0.0.0.0:3088)
+dsh plugin add https://github.com/Bernardxu123/dsh-mobile-gate    # A'. 上游独立插件仓(等价替代)
 node gate/lan-gate-server.cjs          # B. 本仓独立进程,默认 0.0.0.0:3088 → 127.0.0.1:3080
 # 或 Windows 一键: tools\start-lan-gate.ps1(自动定位 .credentials.yaml 启用会话注入)
 ```
@@ -54,7 +55,7 @@ LAN 二维码/Cloudflare 隧道/IM bot)。桥默认 LAN 代理口 **3082**(被�
 
 1. **装 APK**: 把 `dist/DSHMobile.apk` 传到手机安装(允许未知来源)。
 2. **放行防火墙**(仅独立网关需要): 管理员运行 `tools/allow-gate-firewall.ps1`
-   (放行 TCP 3088-3093 入站;若你的网关用其他口自行放行)。
+   (放行 TCP 3088-3108 入站,覆盖 lan-gate 顺延全段;若你的网关用其他口自行放行)。
 3. **App 自动搜索** → 直接进 DSH(默认首台设备自动配对+上游会话注入,
    无密码/无 token/无审批)。会话 30 天 cookie,主本重启不失效。
    手动输地址可用 `tools/get-mobile-url.ps1` 生成。
@@ -84,8 +85,7 @@ LAN 二维码/Cloudflare 隧道/IM bot)。桥默认 LAN 代理口 **3082**(被�
 | 3080 | dsh web / 桌面内核(官方默认) | DSH 本体 |
 | **3088** | **lan-gate 默认口**(插件或独立 `gate/lan-gate-server.cjs`) | 本项目/插件 |
 | **3082** | **dsh-bridge LAN 代理官方默认口**(被占顺延 3083/3084) | 官方预设插件 |
-| 3089-3094 | 自管区间:网关顺延、多实例、APK 订阅源 3093 | 本机约定 |
-| 3105-3108 | lan-gate EADDRINUSE 顺延尾段 | lan-gate 自择 |
+| 3089-3108 | lan-gate EADDRINUSE 顺延段(整段被 App 扫口覆盖;3093=APK 订阅源约定) | lan-gate 自择 |
 
 ## 重新构建
 
@@ -123,3 +123,7 @@ JDK 8+ 走 `JAVA_HOME`/`PATH`/常见 `/opt/jdk25`。签名默认用项目内调�
   更新源公网兜底、setup 文案与迁移逻辑去机主特定值。
 - v1.5.1: 端口表补 **3082**(dsh-bridge 官方默认代理口,v1.5 漏列,干净官方
   环境下自动搜索会漏桥);文档修正插件安装命令(git URL)与桥自有门禁模型。
+- v1.5.2: 扫口表补全 lan-gate 顺延中段 **3093-3104**——实测插件形态在
+  3088-3097 全被占用时落到 3098,v1.5.1 只兜 3105-3108 尾段会漏检;
+  防火墙脚本同步放宽到 3088-3108;README 接入本仓即插件
+  (`dsh plugin add <本仓>`)。

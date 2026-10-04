@@ -799,9 +799,10 @@ public class MainActivity extends Activity {
 
     /** 端口优先级:先用当前地址里的端口,再按常见网关口补扫。
      *  3088=lan-gate 插件/独立网关默认口(dsh plugin add <git url> 或
-     *  node gate/lan-gate-server.cjs,EADDRINUSE 时最多顺延 +20 到 3108);
-     *  3082=dsh-bridge 官方默认代理口(@wenbin_wb/dsh-bridge,被占顺延 3083/3084);
-     *  3089-3094=常见自管网关/订阅源区间;3105-3108 顺带兜 lan-gate 顺延尾段。 */
+     *  node gate/lan-gate-server.cjs,EADDRINUSE 时顺延 +1..+20 到 3108),
+     *  故 3089-3108 整段全扫——v1.5.1 只兜 3105-3108 尾段,实测 3088-3097
+     *  被占满落到 3098 会漏检;3082=dsh-bridge 官方默认代理口(被占顺延
+     *  3083/3084);3093=APK 订阅源口顺带探测(签名不符自动跳过)。 */
     private int[] preferredPorts(String url) {
         int first = 3088;
         try {
@@ -810,7 +811,9 @@ public class MainActivity extends Activity {
                 if (u.getPort() > 0) first = u.getPort();
             }
         } catch (Exception ignored) { }
-        int[] rest = {3088, 3082, 3083, 3084, 3089, 3090, 3091, 3092, 3094, 3105, 3106, 3107, 3108};
+        int[] rest = {3088, 3082, 3083, 3084,
+                3089, 3090, 3091, 3092, 3093, 3094, 3095, 3096, 3097, 3098, 3099, 3100,
+                3101, 3102, 3103, 3104, 3105, 3106, 3107, 3108};
         List<Integer> out = new ArrayList<Integer>();
         out.add(first);
         for (int p : rest) if (p != first && !out.contains(p)) out.add(p);
