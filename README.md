@@ -35,11 +35,14 @@ node gate/lan-gate-server.cjs          # B. 本仓独立进程,默认 0.0.0.0:30
 看到的就是桌面端已登录的同一个实例(账号/会话/余额一致)——不碰任何门。
 
 为什么不用输任何东西:
-- **会话注入**:独立网关自动读 `<DSH_HOME>/.credentials.yaml` 的
-  `browser-session` 签名密钥,给每个转发请求(HTTP+WebSocket)现铸上游会话
+- **会话注入**:独立网关给每个转发请求(HTTP+WebSocket)现铸上游会话
   cookie——与官方 dsh-bridge 相同的注入算法,手机端永远不出现 401 token 页。
-  `dsh web` 用户凭据就在 `~/.dsh`,开箱即用;桌面端用户把 `DSH_HOME` 指到
-  桌面端 home(或 `LAN_GATE_CREDENTIALS=<.credentials.yaml 路径>`)。
+  **凭据自动探测**(网关侧 v1.5.3 起):启动时枚举本机全部 DSH home(Windows
+  `~/.dsh`、桌面端 `dsh-desktop-home`、WSL 各发行版 root/home 的 `.dsh`)
+  并逐一实射验证,自动选中能过上游的那套——DSH 跑在 WSL 里也零配置。
+  仍可用 `LAN_GATE_CREDENTIALS=<路径;路径>` 指定候选(仅作首选,照样验证)。
+  ⚠️ DSH 装在 WSL2 里时,装进该实例的插件网关只在 loopback(LAN 够不到)——
+  此时用 Windows 侧独立网关即可(`tools\start-lan-gate.ps1 -TargetPort <WSL口>`)。
 - **自动配对**(`LAN_GATE_AUTO=first`,默认):第一台接入的外部设备即配对
   (TOFU),之后该设备 cookie 直连;第二台起回到审批页。
   `all`=信任整个局域网(设备换 IP 也永远免操作,仅家用可信 Wi-Fi);
@@ -127,3 +130,8 @@ JDK 8+ 走 `JAVA_HOME`/`PATH`/常见 `/opt/jdk25`。签名默认用项目内调�
   3088-3097 全被占用时落到 3098,v1.5.1 只兜 3105-3108 尾段会漏检;
   防火墙脚本同步放宽到 3088-3108;README 接入本仓即插件
   (`dsh plugin add <本仓>`)。
+- **2026-10-04 网关侧修复**(不动 APK):会话注入的密钥取自错误 home
+  (Windows 独立网关打 WSL 主本时注入被 401——手机被弹回"填 token"页)。
+  现启动时自动枚举全部候选 home 并逐一实射 `GET /` 验证取真钥;
+  `start-lan-gate.ps1` 端口预检只认通配监听,不再被 WSL loopback
+  转发器的同口占位误判。

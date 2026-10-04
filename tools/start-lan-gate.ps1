@@ -20,9 +20,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$existing = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+# 只认通配监听(0.0.0.0/::)为本网关已占用;127.0.0.1-only 监听多为 WSL loopback
+# 转发器越狱段(WSL 内插件 gate),与本机 0.0.0.0 网关可共存,不应误判为已运行
+$existing = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Where-Object { $_.LocalAddress -eq '0.0.0.0' -or $_.LocalAddress -eq '::' }
 if ($existing) {
-    Write-Host "port $Port already listening (PID $($existing[0].OwningProcess))"
+    Write-Host "port $Port already listening on wildcard (PID $($existing[0].OwningProcess))"
     exit 0
 }
 if (-not (Get-NetTCPConnection -LocalPort $TargetPort -State Listen -ErrorAction SilentlyContinue)) {

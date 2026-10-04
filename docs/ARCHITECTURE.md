@@ -42,13 +42,23 @@ DSH Web UI 默认只绑 loopback。手机要进来,必须有人在 0.0.0.0 上�
   登录页,输对密码即批准(`POST /lan-gate/login`,timingSafeEqual,
   同 IP 8 错锁 10 分钟);入口地址带 `?pw=<密码>` 可票据直通。
   c) **上游会话注入**(凭据可读即自动,独立版特性):网关读
-  `<DSH_HOME>/.credentials.yaml`(或 `LAN_GATE_CREDENTIALS` 指定)里
-  `client-connection/browser-session` 的签名密钥,按 DSH 官方格式
-  (`dsh-auth-<b64url sha256(authority)>` = `v1.<b64 payload>.<b64 HMAC-SHA256>`,
-  算法同 @wenbin_wb/dsh-bridge 的 dsh-native-cookie)给**每个转发请求
-  (HTTP 与 WebSocket 握手)**现铸回环会话 cookie——手机端因此永不触碰
-  DSH 原生 `?token=` 门,直接呈现桌面端已登录的实例会话(同一账号)。
-  凭据缺失时静默退化:手机落到原生 401 token 页,经典流程仍可用。
+  `.credentials.yaml` 里 `client-connection/browser-session` 的签名密钥,
+  按 DSH 官方格式(`dsh-auth-<b64url sha256(authority)>` =
+  `v1.<b64 payload>.<b64 HMAC-SHA256>`,算法同 @wenbin_wb/dsh-bridge 的
+  dsh-native-cookie)给**每个转发请求(HTTP 与 WebSocket 握手)**现铸回环
+  会话 cookie——手机端因此永不触碰 DSH 原生 `?token=` 门,直接呈现
+  桌面端已登录的实例会话(同一账号)。凭据缺失时静默退化:手机落到
+  原生 401 token 页,经典流程仍可用。
+  **多 home 自动探测**(2026-10-04):一台机器可能并存多套 home(Windows
+  `~/.dsh`、桌面端 `dsh-desktop-home`、WSL 各发行版 root/home 的 `.dsh`),
+  拿别套密钥注入会被上游 401。网关启动时把候选文件逐一读钥、对目标实例
+  实射 `GET /` 验证,取首个不返 401 的密钥;`LAN_GATE_CREDENTIALS`
+  可用 `;` 分隔多候选、仅作首选。上游不可达时退回第一个可解析密钥;
+  仍未选定时每分钟重试。
+  **WSL 部署注意**:装进 WSL 实例内的插件 gate 绑在 WSL 的 0.0.0.0,
+  Windows 侧只被 loopback 转发——手机在 LAN 上够不着。这种拓扑用
+  Windows 侧独立网关(`tools\start-lan-gate.ps1 -TargetPort <WSL实例口>`),
+  凭据探测会自己跨过 UNC 选到 WSL home 的密钥。
   注意:注入只对「已过设备准入的转发流量」生效,不削弱准入层本身。
 - **token 系**(dsh web 直连):入口地址形如 `http://IP:PORT/?token=XXXX`。
   token 是一次性引导凭证——拿到后立刻换 30 天会话 cookie,**cookie 跨服务端

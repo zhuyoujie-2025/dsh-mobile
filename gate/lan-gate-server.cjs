@@ -10,14 +10,24 @@ const TARGET_PORT=Number(process.env.LAN_GATE_TARGET_PORT||3080);
 const ACCESS_PASSWORD=String(process.env.LAN_GATE_PASSWORD||'');
 const APW_BUF=Buffer.from(ACCESS_PASSWORD);
 /* 2026-10-03 上游会话注入(照搬 @wenbin_wb/dsh-bridge 的 dsh-native-cookie 算法):
-   用 <DSH_HOME>/.credentials.yaml 中 client-connection/browser-session 的 secret
+   用 .credentials.yaml 中 client-connection/browser-session 的 secret
    现铸回环会话 cookie 注入每个转发请求(含 WebSocket)——外部设备永不触碰 DSH 原生
    ?token= 门槛,直接共享桌面端实例会话;凭据不可读时静默退化为原行为(手机见 401 页)。
-   LAN_GATE_CREDENTIALS 可显式指定凭据文件路径。 */
+   2026-10-04 凭据自动探测:一台机器常并存多套 DSH home(Windows ~/.dsh、桌面端
+   dsh-desktop-home、WSL 各发行版的 root 与 home 用户 .dsh),拿别套密钥铸 cookie 会被
+   上游拒成 401——用户侧表现为"登录态失效要重填 ?token="。现在启动时把候选
+   文件逐一读钥、对目标实例实射 GET / 试探,取第一个不返 401 的密钥;
+   LAN_GATE_CREDENTIALS 仍有效但只是首选候选(可用 ; 或 , 分隔多个)。
+   上游整体不可达时退回第一个可解析密钥(同旧行为),全部不可用则静默退化。 */
 var DSH_COOKIE_NAME='dsh-auth-'+crypto.createHash('sha256').update(TARGET_HOST+':'+TARGET_PORT).digest('base64url');
-var _sessSecret='',_sessTried=0;
-function sessionSecret(){var now=Date.now();if(_sessSecret!==''||now-_sessTried<60000)return _sessSecret;_sessTried=now;try{var cred=process.env.LAN_GATE_CREDENTIALS||path.join(dshHome(),'.credentials.yaml');var content=fs.readFileSync(cred,'utf8');var anchor=/^[ \t]*client-connection\/browser-session:[ \t]*$/m.exec(content);var m=anchor?/secret:[ \t]*([A-Za-z0-9_-]+)/.exec(content.slice(anchor.index)):null;if(!m)m=/secret:[ \t]*([A-Za-z0-9_-]+)/.exec(content);if(m)_sessSecret=m[1]}catch(e){}return _sessSecret}
-function mintDshCookie(){var secret=sessionSecret();if(secret==='')return'';var issuedAt=Date.now()-1000;var body=Buffer.from(JSON.stringify({version:1,authority:TARGET_HOST+':'+TARGET_PORT,issuedAt:issuedAt,expiresAt:issuedAt+2592000000}),'utf8').toString('base64url');var sig=crypto.createHmac('sha256',Buffer.from(secret,'base64url')).update(body).digest('base64url');return DSH_COOKIE_NAME+'=v1.'+body+'.'+sig}
+var _sessSecret='',_credFile='',_probing=false;
+function parseSecret(content){var anchor=/^[ \t]*client-connection\/browser-session:[ \t]*$/m.exec(content);var m=anchor?/secret:[ \t]*([A-Za-z0-9_-]+)/.exec(content.slice(anchor.index)):null;if(!m)m=/secret:[ \t]*([A-Za-z0-9_-]+)/.exec(content);return m?m[1]:''}
+function sessionSecret(){return _sessSecret}
+function credentialCandidates(){var out=[],seen={};var add=function(p){p=String(p||'').trim();if(p!==''&&!seen[p]){seen[p]=1;out.push(p)}};String(process.env.LAN_GATE_CREDENTIALS||'').split(/[;,]/).forEach(add);add(path.join(dshHome(),'.credentials.yaml'));add(path.join(os.homedir(),'.dsh','.credentials.yaml'));add(path.join(os.homedir(),'dsh-desktop-home','.credentials.yaml'));if(process.platform==='win32'){/* UNC 根(//wsl.localhost)不可枚举,发行版名须问 wsl.exe;windowsHide 防闪窗 */var distros=[];try{var raw=require('node:child_process').execFileSync('wsl.exe',['-l','-q'],{windowsHide:true,timeout:6000,encoding:'utf16le'});distros=String(raw).replace(/\0/g,'').split(/\r?\n/)}catch(e){}distros.forEach(function(line){var d=String(line||'').replace(/[()]/g,' ').trim().split(/\s+/)[0];if(!d)return;var base='\\\\wsl.localhost\\'+d;add(base+'\\root\\.dsh\\.credentials.yaml');try{fs.readdirSync(base+'\\home').forEach(function(u){add(base+'\\'+d+'\\home\\'+u+'\\.dsh\\.credentials.yaml')})}catch(e){}})}return out}
+function mintWithSecret(secret){var issuedAt=Date.now()-1000;var body=Buffer.from(JSON.stringify({version:1,authority:TARGET_HOST+':'+TARGET_PORT,issuedAt:issuedAt,expiresAt:issuedAt+2592000000}),'utf8').toString('base64url');var sig=crypto.createHmac('sha256',Buffer.from(secret,'base64url')).update(body).digest('base64url');return DSH_COOKIE_NAME+'=v1.'+body+'.'+sig}
+function tryUpstream(secret,cb){var req;try{req=http.get({host:TARGET_HOST,port:TARGET_PORT,path:'/',headers:{cookie:mintWithSecret(secret),'accept-encoding':'identity'},timeout:2500},function(res){res.resume();cb(res.statusCode!==401)})}catch(e){cb(null);return}req.on('timeout',function(){try{req.destroy()}catch(e){}});req.on('error',function(){cb(null)})}
+function probeCredentials(){if(_probing)return;_probing=true;var cands=[];credentialCandidates().forEach(function(f){try{if(fs.statSync(f).isFile())cands.push(f)}catch(e){}});var firstSecret='',gotResponse=false,i=0;var next=function(){if(i>=cands.length){if(_sessSecret===''&&!gotResponse&&firstSecret!=='')_sessSecret=firstSecret;console.log('[lan-gate] session injection: '+(_sessSecret!==''?(_credFile!==''?'credentials verified: '+_credFile:'fallback secret (upstream unreachable)'):'no usable credential — clients see native token page'));_probing=false;return}var f=cands[i++];var sec='';try{sec=parseSecret(fs.readFileSync(f,'utf8'))}catch(e){}if(sec==='')return next();if(firstSecret==='')firstSecret=sec;tryUpstream(sec,function(ok){if(ok!==null)gotResponse=true;if(ok===true){_sessSecret=sec;_credFile=f;console.log('[lan-gate] session injection: credentials '+f+' verified on '+TARGET_HOST+':'+TARGET_PORT);_probing=false;return}next()})};next()}
+function mintDshCookie(){var secret=sessionSecret();if(secret==='')return'';return mintWithSecret(secret)}
 function injectSession(headers){var minted=mintDshCookie();if(minted==='')return;var kept=String(headers['cookie']||'').split(';').map(function(s){return s.trim()}).filter(function(s){return s!==''&&s.indexOf('dsh-auth-')!==0});kept.push(minted);headers['cookie']=kept.join('; ')}
 /* 2026-10-03 自动配对:LAN_GATE_AUTO=first(默认)第一台外部设备即配对放行,
    之后的设备回到审批/密码页;=all 放行所有 LAN 设备(仅可信网络);=off 严格审批。
@@ -69,7 +79,9 @@ server.on('clientError',function(e,socket){try{socket.end('HTTP/1.1 400 Bad Requ
 var maxPort=PROXY_PORT+20;
 server.on('error',function(err){if(err&&err.code==='EADDRINUSE'&&PROXY_PORT<maxPort){PROXY_PORT+=1;try{server.listen(PROXY_PORT,LISTEN_HOST)}catch(e2){console.error('[lan-gate] listen failed: '+String(e2&&e2.message||e2));process.exit(1)}return}console.error('[lan-gate] server error: '+String(err&&err.message?err.message:err));process.exit(1)})
 server.listen(PROXY_PORT,LISTEN_HOST,function(){console.log('[lan-gate] listening on '+LISTEN_HOST+':'+PROXY_PORT+' -> '+TARGET_HOST+':'+TARGET_PORT)})
+probeCredentials();
+var probeTimer=setInterval(function(){if(_sessSecret==='')probeCredentials()},60000);
 var sweep=setInterval(function(){var now=Date.now();rateMap.forEach(function(rate,ip){if(now-rate.started>=120000)rateMap.delete(ip)})},3000)
-process.on('SIGTERM',function(){clearInterval(sweep);try{server.close()}catch(e){}process.exit(0)})
-process.on('SIGINT',function(){clearInterval(sweep);try{server.close()}catch(e){}process.exit(0)})
+process.on('SIGTERM',function(){clearInterval(sweep);clearInterval(probeTimer);try{server.close()}catch(e){}process.exit(0)})
+process.on('SIGINT',function(){clearInterval(sweep);clearInterval(probeTimer);try{server.close()}catch(e){}process.exit(0)})
 console.log('[lan-gate] gateway starting on port '+PROXY_PORT);

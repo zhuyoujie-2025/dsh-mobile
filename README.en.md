@@ -37,12 +37,17 @@ Phone: **install APK → open → auto-search → DSH loads**, already logged in
 the same desktop instance session (account/balance included) — no gate at all.
 
 Why nothing needs typing:
-- **Session injection**: the standalone gate reads the `browser-session`
-  signing secret from `<DSH_HOME>/.credentials.yaml` and mints a fresh upstream
-  session cookie into every forwarded request (HTTP + WebSocket) — the same
-  algorithm the official dsh-bridge uses. `dsh web` users are covered out of
-  the box (`~/.dsh`); desktop-app users point `DSH_HOME` at the desktop home
-  (or `LAN_GATE_CREDENTIALS=<path to .credentials.yaml>`).
+- **Session injection**: the standalone gate mints a fresh upstream session
+  cookie into every forwarded request (HTTP + WebSocket) — the same algorithm
+  the official dsh-bridge uses. **Credential auto-probe** (v1.5.2+): at
+  startup the gate enumerates every local DSH home (`~/.dsh`,
+  `dsh-desktop-home`, every WSL distro's root/home `.dsh` via `wsl -l -q`)
+  and test-fires each secret against the target — the key that survives wins,
+  so a WSL-hosted DSH needs zero config. `LAN_GATE_CREDENTIALS=<path;path>`
+  still works but is merely the first candidate, not a forced pick.
+  ⚠️ When DSH itself runs inside WSL2, the in-WSL plugin gate is reachable
+  only via loopback — use the Windows-side standalone gate instead
+  (`tools\start-lan-gate.ps1 -TargetPort <wsl-port>`).
 - **Auto-pairing** (`LAN_GATE_AUTO=first`, default): the first foreign device
   to connect pairs itself (TOFU); subsequent devices fall back to the approval
   page. `all` trusts the whole LAN (survives DHCP renumbering — trusted home
