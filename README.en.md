@@ -39,7 +39,7 @@ the same desktop instance session (account/balance included) — no gate at all.
 Why nothing needs typing:
 - **Session injection**: the standalone gate mints a fresh upstream session
   cookie into every forwarded request (HTTP + WebSocket) — the same algorithm
-  the official dsh-bridge uses. **Credential auto-probe** (v1.5.2+): at
+  the official dsh-bridge uses. **Credential auto-probe** (gate-side v1.5.3+): at
   startup the gate enumerates every local DSH home (`~/.dsh`,
   `dsh-desktop-home`, every WSL distro's root/home `.dsh` via `wsl -l -q`)
   and test-fires each secret against the target — the key that survives wins,
