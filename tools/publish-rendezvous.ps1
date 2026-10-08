@@ -19,9 +19,11 @@ $gh        = 'C:\Program Files\GitHub CLI\gh.exe'
 $api       = 'https://api.github.com'
 
 if (-not (Test-Path $stateFile)) { exit 0 }
-$sha = (Get-FileHash $stateFile -Algorithm SHA256).Hash
+# 归一化:剥 UTF-8 BOM 再落盘/上传——org.json 见 BOM 会解析失败,手机拉指针全灭
+$clean = [IO.File]::ReadAllText($stateFile).TrimStart([char]0xFEFF)
+[IO.File]::WriteAllText($asset, $clean)
+$sha = (Get-FileHash $asset -Algorithm SHA256).Hash
 if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $sha)) { exit 0 }
-Copy-Item $stateFile $asset -Force
 
 $token = (& $gh auth token) ; $token = $token.Trim()
 $hdr   = @{ Authorization = "Bearer $token"; Accept = 'application/vnd.github+json';

@@ -31,9 +31,11 @@ while (-not $p.HasExited) {
     try { $cur = (Get-Content $stateFile -Raw | ConvertFrom-Json).url } catch {}
   }
   if ($u -ne $cur) {
-    [ordered]@{ v = 1; url = $u; ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();
-                target = 'dsh-3085'; via = 'cloudflare-quick-tunnel' } |
-      ConvertTo-Json -Compress | Set-Content $stateFile -Encoding utf8
+    $j = [ordered]@{ v = 1; url = $u; ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();
+                target = 'dsh-3085'; via = 'cloudflare-quick-tunnel' } | ConvertTo-Json -Compress
+    # 必须无 BOM:PS5.1 Set-Content -Encoding utf8 会写 EF BB BF,
+    # org.json/多数 JSON 解析器见到 BOM 直接报错,App 拉指针会三通道全灭
+    [IO.File]::WriteAllText($stateFile, $j)
     try {
       & powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden `
         -File $publisher *>> (Join-Path $stateDir 'publish.log')

@@ -639,7 +639,9 @@ public class MainActivity extends Activity {
         String line;
         while ((line = rd.readLine()) != null) sb.append(line);
         rd.close();
-        return new JSONObject(sb.toString());
+        String text = sb.toString();
+        if (text.length() > 0 && (int) text.charAt(0) == 0xFEFF) text = text.substring(1); // UTF-8 BOM 会杀死 org.json
+        return new JSONObject(text);
     }
 
     /** 双通道检查更新:同网段 :3093 订阅源优先,不通再试公网 GitHub Releases。 */
