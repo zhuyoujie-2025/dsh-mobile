@@ -92,6 +92,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * v1.6: UDP 广播快发现(lan-gate 应答 DSH-GATE,~1.6s,电脑换 IP 断线秒级自愈,
  *       免全段扫描);https 入口直连(任意固定域名/公网端点,不经转发器);
  *       dshmobile://connect?url= 深链,扫码/点链接即完成接入
+ * v1.7: rendezvous 远程接入——手机不在局域网也能连。启动/断线兜底时拉公网指针
+ *       (jsdelivr→raw→release 三通道 rendezvous.json),拿到当前隧道地址拼
+ *       ?pw=<远程口令> 作 https 直连入口;口令一次录入(设置页手输或入口地址
+ *       带 pw= 参数自动收割),之后隧道地址怎么变都自动跟上
  */
 public class MainActivity extends Activity {
     private static final String PREFS = "dsh_mobile";
@@ -107,6 +111,13 @@ public class MainActivity extends Activity {
         "https://github.com/zhuyoujie-2025/dsh-mobile/releases/latest/download/";
     private static final int LOCAL_PORT_BASE = 3090;   // WebView 恒用 127.0.0.1:<LPORT>,冲突顺延
     private static final int LOCAL_PORT_MAX = 3099;
+    private static final String KEY_EDGE_PW = "edgepw";     // 远程隧道口令(edge gate ?pw=)
+    private static final String KEY_EDGE_BASE = "edgebase"; // 指针里最近一次隧道裸地址
+    private static final String[] RENDEZVOUS = {            // 公网指针三通道,任一可拉
+        "https://cdn.jsdelivr.net/gh/zhuyoujie-2025/dsh-mobile@rendezvous/rendezvous.json",
+        "https://raw.githubusercontent.com/zhuyoujie-2025/dsh-mobile/rendezvous/rendezvous.json",
+        "https://github.com/zhuyoujie-2025/dsh-mobile/releases/download/rendezvous/rendezvous.json",
+    };
 
     private SharedPreferences prefs;
     private WebView web;
@@ -163,6 +174,7 @@ public class MainActivity extends Activity {
             if (direct != null && direct.length() > 0) {
                 useDirect = true;
                 showWeb(direct);
+                refreshEdge(); // 隧道地址可能已轮换:后台对指针,变了自动换新地址
             } else if (target != null && ensureForwarder(target)) {
                 showWeb(localUrl());
             } else {
@@ -334,6 +346,41 @@ public class MainActivity extends Activity {
         col.addView(scan, slp);
         scan.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { scanForGate(input, scan); }
+        });
+
+        // 远程隧道口令:手机不在局域网时,App 拉公网指针拿到隧道地址后拼 ?pw= 进入。
+        // 口令一次录入长期有效(隧道地址轮换不影响);入口地址带 pw= 参数也会自动收割到这里。
+        final EditText pw = new EditText(this);
+        pw.setSingleLine(true);
+        pw.setHint("远程隧道口令(外地/蜂窝网络用)");
+        String savedPw = prefs.getString(KEY_EDGE_PW, "");
+        if (savedPw.length() > 0) pw.setText(savedPw);
+        pw.setTextColor(fgText());
+        pw.setHintTextColor(fgFaint());
+        pw.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        pw.setBackground(cardSoft());
+        pw.setPadding(ep, ep, ep, ep);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        plp.setMargins(0, dp(this, 16), 0, 0);
+        col.addView(pw, plp);
+
+        Button edge = new Button(this);
+        edge.setText("远程连接");
+        edge.setTextColor(fgAccent());
+        edge.setAllCaps(false);
+        edge.setBackground(cardBtn());
+        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        elp.setMargins(0, dp(this, 10), 0, 0);
+        col.addView(edge, elp);
+        edge.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                String v2 = pw.getText().toString().trim();
+                if (v2.length() > 0) prefs.edit().putString(KEY_EDGE_PW, v2).apply();
+                hideKeyboard(pw);
+                connectEdge();
+            }
         });
 
         Button upd = new Button(this);
@@ -718,6 +765,9 @@ public class MainActivity extends Activity {
         }
         if ("https".equals(uri.getScheme())) {
             // 公网/IPv6 等自带 TLS 的固定域名入口:无需转发器,域名不变 cookie 即稳定
+            // 地址里带 pw= 说明是 edge 隧道入口:口令收割下来,之后指针换新地址照样进
+            String pw = uri.getQueryParameter("pw");
+            if (pw != null && pw.length() > 0) prefs.edit().putString(KEY_EDGE_PW, pw).apply();
             useDirect = true;
             prefs.edit()
                     .putString(KEY_URL, url)
@@ -748,10 +798,83 @@ public class MainActivity extends Activity {
 
     // ---------- 局域网自动搜索网关 ----------
 
+    // ---------- 远程(隧道)接入:rendezvous 指针 + edge 口令 ----------
+
+    private boolean hasEdgePw() {
+        String p = prefs.getString(KEY_EDGE_PW, "");
+        return p != null && p.length() > 0;
+    }
+
+    private String edgeEntry(String base) {
+        return base + "?pw=" + Uri.encode(prefs.getString(KEY_EDGE_PW, ""));
+    }
+
+    /** 拉公网指针取最新隧道裸地址;三通道全挂则退回已存地址,再没有返回 null。 */
+    private String edgeBase() {
+        for (String u : RENDEZVOUS) {
+            try {
+                JSONObject j = fetchJson(u + "?_=" + System.currentTimeMillis());
+                String url = j.optString("url", "");
+                if (url.startsWith("https://")) {
+                    prefs.edit().putString(KEY_EDGE_BASE, url).apply();
+                    return url;
+                }
+            } catch (Exception ignored) { }
+        }
+        return prefs.getString(KEY_EDGE_BASE, null);
+    }
+
+    /** 后台对指针:隧道地址变了就重写直连入口,正在看旧地址就换新地址重载。 */
+    private void refreshEdge() {
+        if (!hasEdgePw()) return;
+        new Thread(new Runnable() {
+            public void run() {
+                String base = edgeBase();
+                if (base == null) return;
+                final String entry = edgeEntry(base);
+                if (entry.equals(prefs.getString(KEY_DIRECT, ""))) return;
+                prefs.edit().putString(KEY_DIRECT, entry).putString(KEY_URL, entry).apply();
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        if (webMode && useDirect && web != null) web.loadUrl(entry);
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** 远程接入入口:拉指针→拼 ?pw= → 走 https 直连。 */
+    private void connectEdge() {
+        if (!hasEdgePw()) {
+            showSetup("未设置远程隧道口令——在下方「远程隧道口令」填入电脑给的密码再试。");
+            return;
+        }
+        setBarTitle("正在获取远程入口…");
+        new Thread(new Runnable() {
+            public void run() {
+                final String base = edgeBase();
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        if (base == null) {
+                            showSetup("拉不到远程入口指针——检查网络后重试;在局域网内也可用「自动搜索网关」。");
+                            return;
+                        }
+                        connect(edgeEntry(base));
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** LAN 全部找不到时的兜底:有远程口令走隧道,没有才回设置页。 */
+    private void fallbackEdgeOrSetup(String msg) {
+        if (hasEdgePw()) { connectEdge(); } else { showSetup(msg); }
+    }
+
     /** 主框架失败后的自动重扫:换 IP 场景改指转发器并原页重载;扫不到/反复失败回设置页。 */
     private void autoRescan(final String desc) {
         if (rescanFails >= 2) {
-            showSetup("连接失败: " + desc + "\n电脑可能关机或不在同一网络;也可点「自动搜索网关」手动找回。");
+            fallbackEdgeOrSetup("连接失败: " + desc + "\n电脑可能关机或不在同一网络;也可点「自动搜索网关」手动找回。");
             return;
         }
         rescanFails++;
@@ -769,7 +892,7 @@ public class MainActivity extends Activity {
                             setBarTitle("已找回网关 " + found[0] + ":" + found[1]);
                             if (web != null) web.loadUrl(localUrl());
                         } else {
-                            showSetup("连接失败: " + desc + "\n本网段没找到网关——确认电脑端 DSH 已打开、手机与电脑在同一网络。");
+                            fallbackEdgeOrSetup("连接失败: " + desc + "\n本网段没找到网关——确认电脑端 DSH 已打开、手机与电脑在同一网络。");
                         }
                     }
                 });
