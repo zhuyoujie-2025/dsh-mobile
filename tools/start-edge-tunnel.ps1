@@ -1,8 +1,10 @@
 # start-edge-tunnel.ps1 — cloudflared quick tunnel → edge gate 127.0.0.1:3095。
-# 2026-10-08：后台拉起 cloudflared 并留守监控；从 stderr 日志解析 trycloudflare URL，
-# 写 stateDir\tunnel.json 并调用 publish-rendezvous.ps1 把指针推到 GitHub prerelease。
-# URL 每次隧道重建都会变，全靠指针发布保证手机端永远找得到——所以本脚本常驻到
-# cloudflared 退出（退出后由 mobile-stack watchdog 重新拉起本脚本）。
+# 后台拉起 cloudflared 并留守监控；从 stderr 日志解析 trycloudflare URL，
+# 写 stateDir\tunnel.json，再调用 publish-rendezvous.ps1。
+# 2026-11-09：该脚本不再把地址提交到 GitHub。它只在本机打印地址；只有设了
+# DSH_RENDEZVOUS_URL + DSH_RENDEZVOUS_TOKEN 时才 PUT 到你自己的私有 https 端点。
+# URL 每次隧道重建都会变。手机靠你粘贴的地址，或那个私有指针，而不是公开仓库。
+# 本脚本常驻到 cloudflared 退出（退出后由 mobile-stack watchdog 重新拉起）。
 
 $ErrorActionPreference = 'Stop'
 $stateDir = "$env:USERPROFILE\.dsh\gates\edge-3095"

@@ -55,33 +55,37 @@ LAN 二维码/Cloudflare 隧道/IM bot)。桥默认 LAN 代理口 **3082**(被�
 它自带二维码 token/访问密码门禁并同样注入回环会话 cookie——在 App 里填
 桥控制台给出的带 token 链接即可。
 
-## 跨网络接入(外地/蜂窝,v1.7+)
+## 跨网络接入(外地/蜂窝)
 
-手机和电脑**不在同一网络**也能控——链路是"公网指针 + Cloudflare 隧道 +
-edge 密码门",手机端零安装:
+手机和电脑不在同一网络时,用本机 Cloudflare quick tunnel 打到只听环回的
+edge 网关。隧道地址**只留在电脑上**,不再写入公开仓库(旧的 `rendezvous`
+分支和 prerelease 会把入口暴露给任何人,并且一天几十个自动提交)。
 
 ```
-手机 App → rendezvous 指针(jsDelivr/raw GitHub/release 三通道,只含隧道 URL)
-        → https://*.trycloudflare.com → edge 密码门(127.0.0.1:3095,仅本机环回)
-        → DSH 主本
+手机 App → 你粘贴的 https 地址,或你自己的私有指针
+        → https://*.trycloudflare.com → edge 登录页(127.0.0.1:3095,仅本机环回)
+        → POST /lan-gate/login → DSH 主本
 ```
 
 电脑端三个脚本(Windows,`tools/`):
 
 | 脚本 | 作用 |
 |---|---|
-| `start-edge-gate-3095.ps1` | 把 lan-gate 以 `LAN_GATE_MODE=edge` 起在 loopback 3095→DSH 主口:密码登录页 + `?pw=` 直通 + admin 一律 404,只绑环回不做 LAN 设备准入 |
-| `start-edge-tunnel.ps1` | cloudflared Quick Tunnel 打向 3095,拿到 `trycloudflare.com` 地址写入 `~/.dsh/gates/edge-3095/tunnel.json` |
-| `publish-rendezvous.ps1` | 把 tunnel.json 脱敏成 `rendezvous.json`(URL+时间戳,**不含密码**)发布到 `rendezvous` 分支 + 同名 prerelease 资产,jsDelivr 自动 purge |
+| `start-edge-gate-3095.ps1` | loopback 3095→DSH。准入只有登录页 `POST /lan-gate/login`(口令在 `password.txt`,不进 URL)。隧道上看不到 admin |
+| `start-edge-tunnel.ps1` | cloudflared Quick Tunnel → 3095,把当前 `https://*.trycloudflare.com` 写到 `%USERPROFILE%\.dsh\gates\edge-3095\tunnel.json` |
+| `publish-rendezvous.ps1` | **只在本机**打印并复制这条地址,以及不含密码的 `dshmobile://connect?url=` 深链。可选:同时设置 `DSH_RENDEZVOUS_URL`(必须 https)和 `DSH_RENDEZVOUS_TOKEN`,用 `Authorization: Bearer` 把指针 PUT 到你自己的地址。GitHub、jsDelivr 等公开主机会被拒绝 |
 
-手机端(App v1.7+):设置页「远程隧道口令」填一次电脑给的密码 →
-「远程连接」。App 启动、断线自愈兜底和手动按钮都走同一条路:拉指针 →
-拼 `?pw=` → https 直连;隧道地址轮换后自动跟上新地址,口令不变。
+手机怎么找到网关:
 
-注意:Quick Tunnel 地址是临时的(重启即变,所以才有指针);要稳定公网口
-可在 Cloudflare 建命名隧道绑固定域名,把该域名作为 edge gate 入口即可,
-App 侧入口地址带 `?pw=` 深链一次录入。edge 模式只应绑 loopback 给隧道打,
-**不要把 3095 直接暴露公网**——密码门挡普通访问,但 DSH 本体仍不应裸奔。
+1. **同一 Wi-Fi**(没变):UDP `DSH-GATE?` 或「自动搜索网关」。不经过隧道,也不用密码(默认第一台自动配对)。
+2. **人在外面**:在电脑上打开 `tunnel.json`,或看 publish 脚本打印的地址,把 **https 地址**粘贴进 App(或打开不含密码的深链)。页面是登录表单,口令用 POST 提交。
+3. **隧道重启后地址会变,又想自动跟上**:自备一个要鉴权才能读的 https 指针。电脑设上面两个环境变量;手机「私人指针」填同一个地址和令牌。App 只向这个地址要 `url`,再 POST 登录。
+
+`?pw=` 已经从网关和 App 去掉。旧链接里的 `pw` 会被剥掉,不再当成门票。会话 cookie 是 `HttpOnly; SameSite=Lax`,走 https 隧道时再加上 `Secure`。
+
+没设 `LAN_GATE_EDGE` 时,只要请求带着 Cloudflare / `X-Forwarded-*` 这类代理头,也不会再被当成本机而跳过密码。不带这些头的局域网手机仍走原来的自动配对。不注入代理头的原始 TCP 转发请打到 edge 口(`LAN_GATE_EDGE=1`),不要打到普通 LAN 网关。
+
+要一个不变的公网名字,用 Cloudflare 命名隧道的固定域名,把该 https 地址填进 App,同样不要带密码。edge 网关只绑 loopback,**不要把 3095 映射到公网**。
 
 ## 手机端使用
 
@@ -93,7 +97,8 @@ App 侧入口地址带 `?pw=` 深链一次录入。edge 模式只应绑 loopback
    手动输地址可用 `tools/get-mobile-url.ps1` 生成。
 4. **扫码/点链接零输入**(v1.6+):入口地址可编成
    `dshmobile://connect?url=<URL编码后地址>`——手机相机扫二维码或点链接
-   即拉起 App 自动接管;带 `?pw=<访问密码>` 的地址连密码页都跳过。
+   即拉起 App 自动接管。地址里如果还带着旧的 `?pw=`,App 会把口令收进本地并
+   从网址里删掉,不再跳过登录页。
 
 ## 行为要点(v1.6)
 
@@ -109,18 +114,22 @@ App 侧入口地址带 `?pw=` 深链一次录入。edge 模式只应绑 loopback
   主框架加载失败自动重扫网段找回入口,不黑屏。
 - **认证**: lan-gate 两道门——设备准入(`LAN_GATE_AUTO`:first 首台自动配对/
   all 全放行/off 审批,显式 deny 优先;`LAN_GATE_PASSWORD` 可选密码登录页,
-  同 IP 8 错锁 10 分钟、timingSafeEqual)和上游会话注入(自动铸 DSH 回环
-  会话 cookie,手机不碰 `?token=`);dsh web 直连 `?token=` 一次换 30 天
-  cookie;dsh-bridge 走桥自有 token/密码门禁。
+  只认 `POST /lan-gate/login`,不认 URL 里的 `?pw=`;同 IP 8 错锁 10 分钟、
+  timingSafeEqual;cookie 为 `HttpOnly; SameSite=Lax`,https 隧道再加 `Secure`)
+  和上游会话注入(自动铸 DSH 回环会话 cookie,手机不碰 `?token=`)。带
+  Cloudflare / `X-Forwarded-*` 等代理头的请求,即使没设 `LAN_GATE_EDGE`,
+  也不再当本机直通。dsh web 直连 `?token=` 一次换 30 天 cookie;dsh-bridge
+  走桥自有 token/密码门禁。
 - **更新**: App 启动先查同网段 `http://<入口主机>:3093/dshmobile/version.json`
   (可选,`tools/start-apk-feed-3093.ps1` 拉起);不通再查本仓库
   `releases/latest/download/version.json` → 发现新 versionCode 弹窗 +
   DownloadManager 下载 + 拉起系统安装器。
-- **远程**(v1.7+): `rendezvous.json` 公网指针(jsDelivr→raw→release 资产
-  三路兜底)给出当前隧道地址;`edgepw` 口令一次录入,LAN 全断时断线自愈
-  自动走隧道;指针只含 URL 不含密码,公网侧只见 edge 登录页。
-- **隐私**: 除两处更新源与 rendezvous 指针外无任何网络出口;入口地址
-  与远程口令只存本机 SharedPreferences。
+- **远程**: 隧道地址来自你粘贴的 https URL,或设置页里的私人指针(Bearer
+  放在请求头,不跟随重定向)。公开的 GitHub / jsDelivr rendezvous 已停用。
+  口令只在 `POST /lan-gate/login` 的正文里。LAN 全断且已经保存过隧道地址
+  或私人指针时,断线自愈会再试一次远程。
+- **隐私**: 除更新源和你自己填的私人指针外,App 不再主动拉取公网入口;
+  入口地址、口令和指针令牌只存本机 SharedPreferences。
 
 ## 端口约定(建议,全部可改)
 
@@ -155,7 +164,7 @@ JDK 8+ 走 `JAVA_HOME`/`PATH`/常见 `/opt/jdk25`。签名默认用项目内调�
 - `tools/` — fetch-android-tools.sh / make-icon.py / start-lan-gate.ps1 /
   start-apk-feed-3093.ps1 / allow-gate-firewall.ps1 / get-mobile-url.ps1 /
   start-edge-gate-3095.ps1 / start-edge-tunnel.ps1 / publish-rendezvous.ps1
-  (远程接入三件套)
+  (远程接入三件套;指针只留本机或你的私有 https 端点)
 - `docs/ARCHITECTURE.md` — 连接架构与协议细节(给想接其他端的人)
 
 ## 事故记录(历史)
@@ -178,12 +187,14 @@ JDK 8+ 走 `JAVA_HOME`/`PATH`/常见 `/opt/jdk25`。签名默认用项目内调�
 - v1.6.0: 发现机制升级——lan-gate 新增 UDP 30900 广播应答,App 发现与断线
   自愈先走 UDP(~1.6s)再退回全段 TCP 扫;新增 `https://` 直连入口(任意
   固定端点不经转发器)与 `dshmobile://connect?url=` 深链(扫码/点链接即
-  接入,可带 `?pw=` 直通密码页);防火墙脚本补 UDP 30900 放行。
+  接入);防火墙脚本补 UDP 30900 放行。
 - **2026-10-04 网关侧修复**(不动 APK):会话注入的密钥取自错误 home
   (Windows 独立网关打 WSL 主本时注入被 401——手机被弹回"填 token"页)。
   现启动时自动枚举全部候选 home 并逐一实射 `GET /` 验证取真钥;
   `start-lan-gate.ps1` 端口预检只认通配监听,不再被 WSL loopback
   转发器的同口占位误判。
-- v1.7.0: 跨网络接入落地——lan-gate 新增 `LAN_GATE_MODE=edge`(loopback
-  密码门,`?pw=` 直通,admin 404);App 拉 rendezvous 公网指针自动跟随
-  隧道地址轮换,设置页远程口令一次录入;断线自愈在 LAN 全断时自动走隧道。
+- v1.7.0: 跨网络接入落地——edge 网关(loopback 密码门,admin 对隧道 404)
+  加 Cloudflare quick tunnel。
+- v1.7.1: 隧道地址不再公开发布;口令改为 `POST /lan-gate/login`(去掉 URL
+  里的 `?pw=`);会话 cookie 在 https 上带 `Secure`(并保持 HttpOnly、
+  SameSite=Lax);没设 `LAN_GATE_EDGE` 时,带代理头的流量也不再当本机直通。

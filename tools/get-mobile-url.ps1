@@ -3,6 +3,8 @@
 # lan-gate 不需要 token(首次访问走审批);若入口是 dsh web/dsh-bridge 认证页,
 # 用 -Token 附上 ?token= (token 在 dsh web 启动日志或桥插件二维码页可见)。
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File get-mobile-url.ps1 [-GatePort 3088] [-Token abc]
+# -Password 不再把口令写进地址(会进历史、日志和 Referer)。设了 LAN_GATE_PASSWORD 时,
+# 手机打开下面的地址,在登录页提交即可。
 
 param([int]$GatePort = 3088, [string]$Token = '', [string]$Password = '')
 
@@ -16,12 +18,15 @@ $ip = ($cands | Where-Object { $_.InterfaceIndex -eq $defIf } | Select-Object -F
 if (-not $ip) { $ip = ($cands | Select-Object -First 1 -ExpandProperty IPAddress) }
 if (-not $ip) { Write-Host "FAIL: 没找到可用 LAN IP"; exit 1 }
 
-$url = "http://${ip}:$GatePort/" + $(if ($Token) { "?token=$Token" } elseif ($Password) { "?pw=$Password" } else { '' })
+$url = "http://${ip}:$GatePort/" + $(if ($Token) { "?token=$Token" } else { '' })
 Write-Host ""
 Write-Host "手机与电脑同一局域网时, 在 App 里输入:"
 Write-Host "  $url" -ForegroundColor Cyan
 try { Set-Clipboard $url; Write-Host "(已复制到剪贴板)" } catch { Write-Host "(剪贴板不可用, 手动复制上面的地址)" }
 Write-Host ""
+if ($Password) {
+  Write-Host "已忽略 -Password: 口令不再放进网址。打开上面的地址后在登录页输入。" -ForegroundColor Yellow
+}
 Write-Host "lan-gate(默认 LAN_GATE_AUTO=first): 第一台设备即配对,地址不带任何参数即可;" -ForegroundColor DarkGray
-Write-Host "  若走审批页: 电脑开 http://127.0.0.1:$GatePort/lan-gate/admin 批准;设了 LAN_GATE_PASSWORD 则输密码或用 -Password 生成 ?pw= 票据链接。" -ForegroundColor DarkGray
+Write-Host "  若走审批页: 电脑开 http://127.0.0.1:$GatePort/lan-gate/admin 批准;设了 LAN_GATE_PASSWORD 则在手机登录页输入,不要拼 ?pw=。" -ForegroundColor DarkGray
 Write-Host "dsh web 直连/桥 token 失效时: 用 -Token 重新取地址(token 每次启动轮换)。" -ForegroundColor DarkGray
