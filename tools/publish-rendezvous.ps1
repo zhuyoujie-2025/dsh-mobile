@@ -1,63 +1,72 @@
-# publish-rendezvous.ps1 — 发布隧道指针,手机在任何网络都能拿到当前入口地址。
-# 2026-10-08：双通道发布——
-#   1) repo 的 `rendezvous` 分支文件(raw.githubusercontent.com / cdn.jsdelivr.net 都能拉,
-#      中国大陆直连稳定);
-#   2) `rendezvous` prerelease 资产(prerelease 不会劫持 releases/latest 更新通道,
-#      objects.githubusercontent.com 国内直连差,只作兜底)。
-# 指针只含 URL 不含口令——公开可读无损(edge gate 准入靠 LAN_GATE_PASSWORD,
-# 口令只存在手机与 password.txt)。幂等:内容未变不重复推送。
-# 注:gh 的 stderr 走 cmd /c ... 2>nul —— PS5.1 下原生命令 stderr 包成
-# NativeCommandError,配合 ErrorActionPreference=Stop 会误杀脚本。
+# publish-rendezvous.ps1 — 把当前隧道地址交给机主,不再公开发布。
+# 2026-11-09: 以前会把 tunnel URL 提交到公开仓库的 rendezvous 分支,并上传同名
+# prerelease。这两处任何人都能读到,而且一天几十个自动提交。现在默认只留在本机:
+#   %USERPROFILE%\.dsh\gates\edge-3095\tunnel.json
+# 脚本打印地址、复制不含密码的 dshmobile:// 深链。需要手机在隧道轮换后自动跟上时,
+# 设两个环境变量,把指针 PUT 到你自己的私有 https 端点(必须带令牌):
+#   DSH_RENDEZVOUS_URL    只接受 https,且拒绝 GitHub / jsDelivr 等公开主机
+#   DSH_RENDEZVOUS_TOKEN  Authorization: Bearer 的值,不会写进 URL
+# 公开的旧 rendezvous 分支和 prerelease 请自己删。本脚本不再推它们,也不改写历史。
 
 $ErrorActionPreference = 'Stop'
 $stateDir  = "$env:USERPROFILE\.dsh\gates\edge-3095"
 $stateFile = Join-Path $stateDir 'tunnel.json'
 $marker    = Join-Path $stateDir 'published.sha'
 $asset     = Join-Path $stateDir 'rendezvous.json'
-$repo      = 'zhuyoujie-2025/dsh-mobile'
-$gh        = 'C:\Program Files\GitHub CLI\gh.exe'
-$api       = 'https://api.github.com'
 
 if (-not (Test-Path $stateFile)) { exit 0 }
-# 归一化:剥 UTF-8 BOM 再落盘/上传——org.json 见 BOM 会解析失败,手机拉指针全灭
+
+# 归一化:剥 UTF-8 BOM。只写本机副本,不上传。
 $clean = [IO.File]::ReadAllText($stateFile).TrimStart([char]0xFEFF)
 [IO.File]::WriteAllText($asset, $clean)
-$sha = (Get-FileHash $asset -Algorithm SHA256).Hash
-if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $sha)) { exit 0 }
+try { $url = ([string]($clean | ConvertFrom-Json).url).Trim() } catch { $url = '' }
+if ($url -notmatch '^https://') {
+  Write-Warning "tunnel.json has no https url; nothing to share."
+  exit 0
+}
 
-$token = (& $gh auth token) ; $token = $token.Trim()
-$hdr   = @{ Authorization = "Bearer $token"; Accept = 'application/vnd.github+json';
-            'X-GitHub-Api-Version' = '2022-11-28' }
-$ok = $true
+$deep = 'dshmobile://connect?url=' + [Uri]::EscapeDataString($url)
+Write-Host ""
+Write-Host "Tunnel URL (local only, not published):" -ForegroundColor Cyan
+Write-Host "  $url"
+Write-Host "Phone: paste that https address, or open this password-free link:"
+Write-Host "  $deep"
+Write-Host "Do not put the gate password in the URL. The phone logs in with POST /lan-gate/login."
+try { Set-Clipboard $url; Write-Host "(https URL copied to the clipboard)" } catch {}
+Write-Host ""
+Write-Host "Public GitHub rendezvous publishing is disabled (no branch commit, no prerelease upload)." -ForegroundColor Yellow
+Write-Host "Rotate the leaked tunnel by restarting cloudflared, then delete the old rendezvous branch and prerelease yourself."
+
+$dest = [string]$env:DSH_RENDEZVOUS_URL
+$token = [string]$env:DSH_RENDEZVOUS_TOKEN
+if ([string]::IsNullOrWhiteSpace($dest)) { exit 0 }
+$token = $token.Trim()
+if ([string]::IsNullOrWhiteSpace($token)) {
+  Write-Warning "DSH_RENDEZVOUS_URL is set but DSH_RENDEZVOUS_TOKEN is empty; refusing to publish without authentication."
+  exit 0
+}
+
+try { $u = [Uri]$dest.Trim() } catch { Write-Warning "DSH_RENDEZVOUS_URL is not a URL; not publishing."; exit 0 }
+if ($u.Scheme -ne 'https') { Write-Warning "DSH_RENDEZVOUS_URL must be https; not publishing."; exit 0 }
+$blocked = @('github.com','githubusercontent.com','jsdelivr.net','gitlab.com','bitbucket.org','gitee.com')
+foreach ($b in $blocked) {
+  if ($u.Host -eq $b -or $u.Host.EndsWith('.' + $b)) {
+    Write-Warning "Refusing to publish the tunnel URL to public host $($u.Host)."
+    exit 0
+  }
+}
+
+$sha = (Get-FileHash $asset -Algorithm SHA256).Hash
+if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $sha)) {
+  Write-Host "Private pointer unchanged; not PUT again."
+  exit 0
+}
 
 try {
-  # --- 通道1:rendezvous 分支文件 ---
-  try { $mainRef = Invoke-RestMethod -Headers $hdr "$api/repos/$repo/git/ref/heads/main" }
-  catch { $mainRef = $null }
-  if ($mainRef) {
-    try { Invoke-RestMethod -Headers $hdr "$api/repos/$repo/git/ref/heads/rendezvous" | Out-Null }
-    catch {
-      Invoke-RestMethod -Headers $hdr -Method Post "$api/repos/$repo/git/refs" `
-        -Body (@{ ref = 'refs/heads/rendezvous'; sha = $mainRef.object.sha } | ConvertTo-Json) | Out-Null
-    }
-    $fileSha = $null
-    try { $fileSha = (Invoke-RestMethod -Headers $hdr "$api/repos/$repo/contents/rendezvous.json?ref=rendezvous").sha } catch {}
-    $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($asset))
-    $body = @{ message = 'rendezvous: update tunnel pointer'; content = $b64; branch = 'rendezvous' }
-    if ($fileSha) { $body.sha = $fileSha }
-    Invoke-RestMethod -Headers $hdr -Method Put "$api/repos/$repo/contents/rendezvous.json" `
-      -Body ($body | ConvertTo-Json) | Out-Null
-    # jsDelivr 有 CDN 缓存,主动 purge 让新指针立即可读
-    try { Invoke-RestMethod "https://purge.jsdelivr.net/gh/$repo@rendezvous/rendezvous.json" -TimeoutSec 10 | Out-Null } catch {}
-  }
-
-  # --- 通道2:rendezvous prerelease 资产(国内直连差的兜底通道) ---
-  cmd /c "`"$gh`" release view rendezvous -R $repo >nul 2>nul"
-  if ($LASTEXITCODE -ne 0) {
-    cmd /c "`"$gh`" release create rendezvous --prerelease -R $repo --title `"Mobile Rendezvous`" --notes `"machine-maintained tunnel pointer; not a product release`" >nul 2>nul"
-  }
-  cmd /c "`"$gh`" release upload rendezvous `"$asset`" --clobber -R $repo >nul 2>nul"
-  if ($LASTEXITCODE -ne 0) { $ok = $false }
-} catch { $ok = $false }
-
-if ($ok) { Set-Content $marker $sha -Encoding ascii }
+  Invoke-RestMethod -Method Put -Uri $u.AbsoluteUri -Headers @{ Authorization = "Bearer $token" } `
+    -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($clean)) | Out-Null
+  Set-Content $marker $sha -Encoding ascii
+  Write-Host "PUT tunnel pointer to private endpoint $($u.Host) (URL not printed again)."
+} catch {
+  Write-Warning "Private rendezvous PUT failed: $($_.Exception.Message)"
+}

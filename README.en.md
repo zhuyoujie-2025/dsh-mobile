@@ -73,24 +73,51 @@ token link shown in the bridge console into the app.
 - **Any endpoint** (v1.6+): `https://` addresses connect directly without the
   forwarder — point the app at your own tunnel / public domain / IPv6 entry;
   the app bundles no third-party service. The `dshmobile://connect?url=`
-  deep link turns an entry address into a scannable QR / tappable link
-  (an address with `?pw=` skips the gate password page too).
+  deep link turns an entry address into a scannable QR / tappable link.
+  A legacy `?pw=` on that link is stripped and stored locally; it is not sent
+  in the URL and does not skip the login page.
 - **Stable connection**: built-in loopback TCP forwarder → DSH frontend trusts
   host-persisted settings; cookies survive IP changes. Main-frame failure
   triggers a subnet rescan — no black screen.
-- **Auth**: lan-gate has two gates, both avoidable — device admission
+- **Auth**: lan-gate has two gates — device admission
   (`LAN_GATE_AUTO`: `first` auto-pairs the first foreign device / `all` /
   `off` approval-only, explicit deny always wins; optional
-  `LAN_GATE_PASSWORD` login page, 8 wrong tries/IP locks 10 min,
-  timingSafeEqual) and upstream session injection (mints the DSH loopback
-  session cookie itself so the phone never meets `?token=`); `dsh web` direct
+  `LAN_GATE_PASSWORD` login page via `POST /lan-gate/login`, 8 wrong tries/IP
+  locks 10 min, timingSafeEqual) and upstream session injection (mints the DSH
+  loopback session cookie itself so the phone never meets `?token=`). The
+  password is not accepted in the URL. The session cookie is `HttpOnly;
+  SameSite=Lax`, plus `Secure` when the client reached the gate over https.
+  Traffic that carries Cloudflare or `X-Forwarded-*` proxy headers is never
+  treated as local, even when `LAN_GATE_EDGE` is unset. `dsh web` direct
   needs a one-time `?token=` minting a 30-day cookie; dsh-bridge uses its own
   token/password gate.
 - **Updates**: at boot the app tries `http://<entry-host>:3093/dshmobile/version.json`
   (optional LAN feed), then this repo's `releases/latest/download/version.json`.
   A newer `versionCode` prompts a DownloadManager install.
-- **Privacy**: no network calls except the two update channels; entry addresses
-  stay in local SharedPreferences.
+- **Privacy**: no network calls except the two update channels and, if you
+  fill one in, your private tunnel pointer. Entry address, gate password, and
+  pointer token stay in local SharedPreferences. The tunnel URL is not
+  published to this Git repository.
+
+## Remote access (off-LAN)
+
+A Cloudflare quick tunnel can front a loopback-only edge gate
+(`tools/start-edge-gate-3095.ps1` + `tools/start-edge-tunnel.ps1`). The
+current `https://*.trycloudflare.com` URL is written to
+`%USERPROFILE%\.dsh\gates\edge-3095\tunnel.json`.
+
+`tools/publish-rendezvous.ps1` only prints that URL locally and copies a
+password-free `dshmobile://connect?url=` link. It does **not** commit a
+`rendezvous` branch or upload a GitHub prerelease. To follow URL changes
+automatically, set `DSH_RENDEZVOUS_URL` (https, not GitHub/jsDelivr/…) and
+`DSH_RENDEZVOUS_TOKEN`; the script PUTs the pointer with
+`Authorization: Bearer`. Put the same URL and token in the app's private
+pointer fields. Otherwise paste the https address from `tunnel.json` into
+the app. The password is submitted as `POST /lan-gate/login`, never as
+`?pw=`.
+
+Same-LAN discovery (UDP `DSH-GATE?` / auto-search) is unchanged and does not
+use the tunnel. Do not publish port 3095; the edge gate binds loopback only.
 
 ## Port conventions (all configurable)
 

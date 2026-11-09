@@ -39,8 +39,12 @@ DSH Web UI 默认只绑 loopback。手机要进来,必须有人在 0.0.0.0 上�
   「等待批准」页,电脑端 `http://127.0.0.1:<口>/lan-gate/admin`(loopback
   免鉴权)批准。显式 deny 的 IP 任何模式都不放行。
   b) **共享口令**(`LAN_GATE_PASSWORD` 非空,可选叠加):未知设备的页面变
-  登录页,输对密码即批准(`POST /lan-gate/login`,timingSafeEqual,
-  同 IP 8 错锁 10 分钟);入口地址带 `?pw=<密码>` 可票据直通。
+  登录页,输对密码即批准(`POST /lan-gate/login`,正文 `pw`,timingSafeEqual,
+  同 IP 8 错锁 10 分钟)。口令不接受写在 URL 里的 `?pw=`——那会进历史、
+  日志和 Referer;网关转发前也会把 `pw` 从查询串里剥掉。会话 cookie 是
+  `lg_token`;属性为 `Path=/; HttpOnly; SameSite=Lax`,客户端经由 https
+  (隧道的 `x-forwarded-proto` / `cf-visitor`,或仅有 `cf-ray`)时再加 `Secure`。
+  局域网明文 http 不加 `Secure`,否则浏览器会丢掉 cookie。
   c) **上游会话注入**(凭据可读即自动,独立版特性):网关读
   `.credentials.yaml` 里 `client-connection/browser-session` 的签名密钥,
   按 DSH 官方格式(`dsh-auth-<b64url sha256(authority)>` =
@@ -118,9 +122,20 @@ v1.5.2 起扫口表覆盖整个顺延段;更早版本只兜 3105-3108 尾段,实
 
 - lan-gate 转发一律打到 `127.0.0.1:<目标>`——它只解决「0.0.0.0 监听」,
   不解决「谁可以连」。审批+限流是它的防线;别把网关口暴露到公网。
-  `LAN_GATE_PASSWORD` 只在环境变量里(不写状态文件/日志),强度自担——
-  它是 LAN 场景便利项,公网场景请走桥隧道而非密码+端口映射。
+  `LAN_GATE_PASSWORD` 只在环境变量里(不写状态文件/日志),强度自担。
+- **隧道默认失败关闭。** 带 `cf-connecting-ip` / `cf-ray` / `cf-visitor` /
+  `x-forwarded-for` / `x-forwarded-proto` / `forwarded` / `x-real-ip` 的请求,
+  即使没设 `LAN_GATE_EDGE`,也不走本机直通、不自动配对、看不到
+  `/lan-gate/admin|status|action`。访客 IP 只在对端是 loopback(本机上的
+  cloudflared)时采信。不带头的原始 TCP 转发仍会像本机一样直通——这种隧道
+  请打到 `LAN_GATE_EDGE=1` 的环回口(`tools/start-edge-gate-3095.ps1` 就是这样)。
+  同一 Wi-Fi 上不带这些头的手机仍按 `LAN_GATE_AUTO` 自动配对。
+- **远程地址不公开。** 隧道 URL 留在本机 `tunnel.json`。手机粘贴该 https
+  地址,或读取机主自己的私有指针(`DSH_RENDEZVOUS_URL` + Bearer 令牌;
+  App 里的「私人指针」)。不要再把指针提交到公开的 `rendezvous` 分支或
+  prerelease。经隧道批准过的设备若没有 cookie,不会再用 `/?t=<令牌>` 把
+  会话放进 URL。
 - `?token=` 等价于登录态,明文走 HTTP——只在可信 LAN 用。要出公网走
-  dsh-bridge 的 Cloudflare 隧道(自带 TLS)而不是端口映射。
+  上面的 Cloudflare 隧道(自带 TLS)或 dsh-bridge 的隧道,而不是端口映射。
 - `lan-gate-state.json` 存审批列表与 adminKey,位于 `DSH_HOME`(默认 `~/.dsh`,
   本项目 tools 脚本设成 `~/.dsh/gates/<口>/`);泄露=网关管理权,勿同步勿外传。

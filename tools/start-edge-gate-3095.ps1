@@ -2,7 +2,8 @@
 # 2026-10-08：只绑 127.0.0.1:3095 → DSH 主本 127.0.0.1:3085，配合本机 cloudflared
 # quick tunnel 提供"任意网络可达"的手机入口。EDGE 模式关回环/LAN 直通、
 # 按 cf-connecting-ip 记设备身份、对外不暴露 admin/status/action；
-# 准入只有两条路：?pw= 票据 / 密码登录页（LAN_GATE_PASSWORD 取自 password.txt）。
+# 准入只有密码登录页 POST /lan-gate/login（LAN_GATE_PASSWORD 取自 password.txt）。
+# 不要把口令放进 URL。隧道流量即使忘了设 LAN_GATE_EDGE 也不会再被当成 loopback 直通。
 # 由 ps-watchdog-mobile-stack.ps1 拉起；不要直接绑 0.0.0.0——LAN 设备请走 3088/3090。
 
 $ErrorActionPreference = 'Stop'

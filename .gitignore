@@ -21,3 +21,7 @@ dshmobile.keystore
 # OS/编辑器
 Thumbs.db
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]

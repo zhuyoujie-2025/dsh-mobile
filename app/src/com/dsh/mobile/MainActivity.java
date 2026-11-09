@@ -55,6 +55,7 @@ import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
@@ -92,10 +93,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * v1.6: UDP 广播快发现(lan-gate 应答 DSH-GATE,~1.6s,电脑换 IP 断线秒级自愈,
  *       免全段扫描);https 入口直连(任意固定域名/公网端点,不经转发器);
  *       dshmobile://connect?url= 深链,扫码/点链接即完成接入
- * v1.7: rendezvous 远程接入——手机不在局域网也能连。启动/断线兜底时拉公网指针
- *       (jsdelivr→raw→release 三通道 rendezvous.json),拿到当前隧道地址拼
- *       ?pw=<远程口令> 作 https 直连入口;口令一次录入(设置页手输或入口地址
- *       带 pw= 参数自动收割),之后隧道地址怎么变都自动跟上
+ * v1.7: 远程隧道接入。v1.7.1 起不再拉取公开 rendezvous,也不再把口令放进网址:
+ *       电脑本机 tunnel.json(或你自己的私有 https 指针)给出隧道地址,登录走
+ *       POST /lan-gate/login。旧链接里的 pw= 会被剥掉并收进本地口令,不进入 WebView。
  */
 public class MainActivity extends Activity {
     private static final String PREFS = "dsh_mobile";
@@ -111,13 +111,10 @@ public class MainActivity extends Activity {
         "https://github.com/zhuyoujie-2025/dsh-mobile/releases/latest/download/";
     private static final int LOCAL_PORT_BASE = 3090;   // WebView 恒用 127.0.0.1:<LPORT>,冲突顺延
     private static final int LOCAL_PORT_MAX = 3099;
-    private static final String KEY_EDGE_PW = "edgepw";     // 远程隧道口令(edge gate ?pw=)
-    private static final String KEY_EDGE_BASE = "edgebase"; // 指针里最近一次隧道裸地址
-    private static final String[] RENDEZVOUS = {            // 公网指针三通道,任一可拉
-        "https://cdn.jsdelivr.net/gh/zhuyoujie-2025/dsh-mobile@rendezvous/rendezvous.json",
-        "https://raw.githubusercontent.com/zhuyoujie-2025/dsh-mobile/rendezvous/rendezvous.json",
-        "https://github.com/zhuyoujie-2025/dsh-mobile/releases/download/rendezvous/rendezvous.json",
-    };
+    private static final String KEY_EDGE_PW = "edgepw";         // 远程口令,只走 POST 正文
+    private static final String KEY_EDGE_BASE = "edgebase";     // 最近一次隧道源站(https origin)
+    private static final String KEY_EDGE_PTR = "edgeptr";       // 可选私有 https 指针,替代已停用的公开 rendezvous
+    private static final String KEY_EDGE_PTR_TOK = "edgeptrtok"; // 指针 Bearer,只放请求头
 
     private SharedPreferences prefs;
     private WebView web;
@@ -168,6 +165,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         CookieManager.getInstance().setAcceptCookie(true);
         migrateSavedUrl();
+        scrubStoredSecrets();
         if (!handleDeepLink(getIntent())) {
             String direct = prefs.getString(KEY_DIRECT, null);
             String target = prefs.getString(KEY_TARGET, null);
@@ -348,11 +346,11 @@ public class MainActivity extends Activity {
             public void onClick(View v) { scanForGate(input, scan); }
         });
 
-        // 远程隧道口令:手机不在局域网时,App 拉公网指针拿到隧道地址后拼 ?pw= 进入。
-        // 口令一次录入长期有效(隧道地址轮换不影响);入口地址带 pw= 参数也会自动收割到这里。
+        // 远程口令只在点「远程连接」时以 POST 正文提交,不写进网址。
+        // 私人指针可选:隧道地址轮换后向你自己的 https 端点要新地址(Bearer 放请求头)。
         final EditText pw = new EditText(this);
         pw.setSingleLine(true);
-        pw.setHint("远程隧道口令(外地/蜂窝网络用)");
+        pw.setHint("远程隧道口令(登录表单用,不会写进网址)");
         String savedPw = prefs.getString(KEY_EDGE_PW, "");
         if (savedPw.length() > 0) pw.setText(savedPw);
         pw.setTextColor(fgText());
@@ -364,6 +362,36 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         plp.setMargins(0, dp(this, 16), 0, 0);
         col.addView(pw, plp);
+
+        final EditText pointer = new EditText(this);
+        pointer.setSingleLine(true);
+        pointer.setHint("私人指针 https(可选,隧道换地址时用)");
+        String savedPtr = prefs.getString(KEY_EDGE_PTR, "");
+        if (savedPtr.length() > 0) pointer.setText(savedPtr);
+        pointer.setTextColor(fgText());
+        pointer.setHintTextColor(fgFaint());
+        pointer.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        pointer.setBackground(cardSoft());
+        pointer.setPadding(ep, ep, ep, ep);
+        LinearLayout.LayoutParams ptlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ptlp.setMargins(0, dp(this, 10), 0, 0);
+        col.addView(pointer, ptlp);
+
+        final EditText pointerTok = new EditText(this);
+        pointerTok.setSingleLine(true);
+        pointerTok.setHint("私人指针令牌(可选,放在 Authorization 头)");
+        String savedTok = prefs.getString(KEY_EDGE_PTR_TOK, "");
+        if (savedTok.length() > 0) pointerTok.setText(savedTok);
+        pointerTok.setTextColor(fgText());
+        pointerTok.setHintTextColor(fgFaint());
+        pointerTok.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        pointerTok.setBackground(cardSoft());
+        pointerTok.setPadding(ep, ep, ep, ep);
+        LinearLayout.LayoutParams tklp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tklp.setMargins(0, dp(this, 10), 0, 0);
+        col.addView(pointerTok, tklp);
 
         Button edge = new Button(this);
         edge.setText("远程连接");
@@ -377,9 +405,23 @@ public class MainActivity extends Activity {
         edge.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 String v2 = pw.getText().toString().trim();
-                if (v2.length() > 0) prefs.edit().putString(KEY_EDGE_PW, v2).apply();
+                String ptr = pointer.getText().toString().trim();
+                String tok = pointerTok.getText().toString().trim();
+                SharedPreferences.Editor ed = prefs.edit();
+                if (v2.length() > 0) ed.putString(KEY_EDGE_PW, v2); else ed.remove(KEY_EDGE_PW);
+                if (ptr.length() > 0) ed.putString(KEY_EDGE_PTR, ptr); else ed.remove(KEY_EDGE_PTR);
+                if (tok.length() > 0) ed.putString(KEY_EDGE_PTR_TOK, tok); else ed.remove(KEY_EDGE_PTR_TOK);
+                ed.commit();
                 hideKeyboard(pw);
-                connectEdge();
+                if (ptr.length() > 0 && !ptr.startsWith("https://")) {
+                    Toast.makeText(MainActivity.this, "私人指针只接受 https 地址", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                if (ptr.length() > 0 && isPublicPointerHost(ptr)) {
+                    Toast.makeText(MainActivity.this, "私人指针不能用 GitHub / jsDelivr 等公开地址", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                connectEdge(normalize(input.getText().toString()));
             }
         });
 
@@ -429,7 +471,7 @@ public class MainActivity extends Activity {
         }
 
         TextView foot = new TextView(this);
-        foot.setText("首次访问会停在「等待批准」页: 在电脑浏览器打开 <网关地址>/lan-gate/admin 批准本设备(选「手机」)后自动进入,已批准设备无需 token。若入口是 dsh web / dsh-bridge 的认证页,需要带 ?token= 的完整地址(在电脑端生成)。");
+        foot.setText("首次访问会停在「等待批准」页: 在电脑浏览器打开 <网关地址>/lan-gate/admin 批准本设备(选「手机」)后自动进入,已批准设备无需 token。若入口是 dsh web / dsh-bridge 的认证页,需要带 ?token= 的完整地址(在电脑端生成)。外地访问把电脑上 tunnel.json 的 https 地址粘贴到上面(不要带密码),在登录页输入口令;或点「远程连接」用 POST 提交。隧道换地址时填写只有你能访问的私人指针,不要再用公开的 GitHub rendezvous。");
         foot.setTextColor(fgFaint());
         foot.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         foot.setTextIsSelectable(true);
@@ -441,7 +483,9 @@ public class MainActivity extends Activity {
 
     // ---------- WebView 页 ----------
 
-    private void showWeb(String url) {
+    private void showWeb(String url) { showWeb(url, null); }
+
+    private void showWeb(String url, byte[] postData) {
         webMode = true;
 
         LinearLayout root = new LinearLayout(this);
@@ -579,7 +623,8 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
-        web.loadUrl(url);
+        if (postData != null && postData.length > 0) web.postUrl(url, postData);
+        else web.loadUrl(url);
     }
 
     private Button barButton(String label) {
@@ -628,11 +673,20 @@ public class MainActivity extends Activity {
         return "http://" + t.substring(0, ci) + ":" + FEED_PORT + "/dshmobile/";
     }
 
-    /** 拉 version.json;成功返回 JSONObject,失败抛异常。 */
+    /** 拉 JSON。bearer 非空时放进 Authorization 头,且不跟随重定向,避免令牌被带到别的主机。 */
     private static JSONObject fetchJson(String url) throws Exception {
+        return fetchJson(url, null, true);
+    }
+
+    private static JSONObject fetchJson(String url, String bearer, boolean followRedirects) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(5000);
         c.setReadTimeout(5000);
+        c.setInstanceFollowRedirects(followRedirects);
+        if (bearer != null && bearer.length() > 0) {
+            c.setRequestProperty("Authorization", "Bearer " + bearer);
+            c.setRequestProperty("Cache-Control", "no-cache");
+        }
         if (c.getResponseCode() != 200) throw new Exception("http " + c.getResponseCode());
         BufferedReader rd = new BufferedReader(new InputStreamReader(c.getInputStream(), "UTF-8"));
         StringBuilder sb = new StringBuilder();
@@ -757,27 +811,128 @@ public class MainActivity extends Activity {
 
     // ---------- 数据与杂项 ----------
 
+    private boolean harvestedPw;
+
+    /** 去掉 pw 查询参数。出现过就把值收进本地口令,调用方绝不再把口令放进 WebView 的 URL。 */
+    private String stripPw(String url) {
+        if (url == null || url.indexOf("pw=") < 0) return url;
+        String raw = url.trim();
+        boolean queryOnly = raw.startsWith("?");
+        String parse = queryOnly ? "http://local.invalid/" + raw : raw;
+        try {
+            Uri u = Uri.parse(parse);
+            String pw = u.getQueryParameter("pw");
+            if (pw == null) return url;
+            harvestedPw = true;
+            if (pw.length() > 0) prefs.edit().putString(KEY_EDGE_PW, pw).commit();
+            Uri.Builder b = u.buildUpon().clearQuery();
+            for (String name : u.getQueryParameterNames()) {
+                if ("pw".equals(name)) continue;
+                for (String val : u.getQueryParameters(name)) b.appendQueryParameter(name, val);
+            }
+            if (!queryOnly) return b.build().toString();
+            String q = b.build().getEncodedQuery();
+            return (q == null || q.length() == 0) ? "" : "?" + q;
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
+    /** 启动时清掉已经存进 SharedPreferences / 历史里的 ?pw=,避免下次打开再把口令发出去。 */
+    private void scrubStoredSecrets() {
+        SharedPreferences.Editor ed = prefs.edit();
+        boolean dirty = false;
+        String direct = prefs.getString(KEY_DIRECT, null);
+        String[] keys = new String[]{KEY_URL, KEY_DIRECT, KEY_EDGE_BASE, KEY_QUERY};
+        for (int i = 0; i < keys.length; i++) {
+            String v = prefs.getString(keys[i], null);
+            String n = stripPw(v);
+            if (v != null && n != null && !n.equals(v)) {
+                ed.putString(keys[i], n);
+                dirty = true;
+                if (KEY_DIRECT.equals(keys[i])) direct = n;
+            }
+        }
+        String hist = prefs.getString(KEY_HIST, "");
+        if (hist.indexOf("pw=") >= 0) {
+            StringBuilder sb = new StringBuilder();
+            String[] lines = hist.split("\n");
+            for (int i = 0; i < lines.length; i++) {
+                String n = stripPw(lines[i].trim());
+                if (n == null || n.length() == 0) continue;
+                if (sb.length() > 0) sb.append('\n');
+                sb.append(n);
+            }
+            ed.putString(KEY_HIST, sb.toString());
+            dirty = true;
+        }
+        String edge = prefs.getString(KEY_EDGE_BASE, "");
+        if (direct != null && direct.startsWith("https://") && (edge == null || edge.length() == 0 || edge.indexOf("pw=") >= 0)) {
+            String origin = httpsOrigin(direct);
+            if (origin != null) {
+                ed.putString(KEY_EDGE_BASE, origin);
+                dirty = true;
+            }
+        }
+        harvestedPw = false;
+        if (dirty) ed.apply();
+    }
+
+    private static String httpsOrigin(String url) {
+        if (url == null) return null;
+        Uri u = Uri.parse(url);
+        if (u == null || u.getHost() == null || !"https".equalsIgnoreCase(u.getScheme())) return null;
+        StringBuilder sb = new StringBuilder("https://").append(u.getHost());
+        int port = u.getPort();
+        if (port > 0 && port != 443) sb.append(':').append(port);
+        sb.append('/');
+        return sb.toString();
+    }
+
+    private static boolean isPublicPointerHost(String url) {
+        Uri u = Uri.parse(url == null ? "" : url);
+        String h = u.getHost();
+        if (h == null) return true;
+        h = h.toLowerCase();
+        String[] blocked = new String[]{
+            "github.com", "githubusercontent.com", "jsdelivr.net",
+            "gitlab.com", "bitbucket.org", "gitee.com"
+        };
+        for (int i = 0; i < blocked.length; i++) {
+            if (h.equals(blocked[i]) || h.endsWith("." + blocked[i])) return true;
+        }
+        return false;
+    }
+
     private void connect(String url) {
         // url = 真实入口地址(用户输入/历史/扫描/深链);http 走 127.0.0.1 转发器,https 直连
+        harvestedPw = false;
+        url = stripPw(url);
+        boolean justHarvested = harvestedPw;
+        if (url == null || url.length() == 0) {
+            Toast.makeText(this, "地址无法解析", Toast.LENGTH_SHORT).show();
+            return;
+        }
         Uri uri = Uri.parse(url);
         String host = uri.getHost();
         if (host == null || host.length() == 0) {
             Toast.makeText(this, "地址无法解析", Toast.LENGTH_SHORT).show();
             return;
         }
-        if ("https".equals(uri.getScheme())) {
-            // 公网/IPv6 等自带 TLS 的固定域名入口:无需转发器,域名不变 cookie 即稳定
-            // 地址里带 pw= 说明是 edge 隧道入口:口令收割下来,之后指针换新地址照样进
-            String pw = uri.getQueryParameter("pw");
-            if (pw != null && pw.length() > 0) prefs.edit().putString(KEY_EDGE_PW, pw).apply();
+        if ("https".equalsIgnoreCase(uri.getScheme())) {
+            // 固定域名 / 隧道入口直连。口令若来自这条链接本身,改走 POST 登录;
+            // 不会把以前保存的口令发给一个随便粘贴的 https 站点。
             useDirect = true;
-            prefs.edit()
-                    .putString(KEY_URL, url)
-                    .putString(KEY_DIRECT, url)
-                    .apply();
+            String origin = httpsOrigin(url);
+            SharedPreferences.Editor ed = prefs.edit().putString(KEY_URL, url).putString(KEY_DIRECT, url);
+            if (justHarvested && origin != null && !isPublicPointerHost(url)) ed.putString(KEY_EDGE_BASE, origin);
+            ed.apply();
             pushHistory(url);
             rescanFails = 0;
-            showWeb(url);
+            // 只把「这条链接自己带的口令」POST 回它的源站。公开网站(旧的 GitHub 指针等)不 POST。
+            if (justHarvested && hasEdgePw() && origin != null && !isPublicPointerHost(url))
+                showWeb(origin + "lan-gate/login", edgeLoginBody());
+            else showWeb(url);
             return;
         }
         useDirect = false;
@@ -800,77 +955,111 @@ public class MainActivity extends Activity {
 
     // ---------- 局域网自动搜索网关 ----------
 
-    // ---------- 远程(隧道)接入:rendezvous 指针 + edge 口令 ----------
+    // ---------- 远程(隧道)接入:本机地址或私人指针,登录走 POST ----------
 
     private boolean hasEdgePw() {
         String p = prefs.getString(KEY_EDGE_PW, "");
         return p != null && p.length() > 0;
     }
 
-    private String edgeEntry(String base) {
-        return base + "?pw=" + Uri.encode(prefs.getString(KEY_EDGE_PW, ""));
+    private boolean hasPrivatePointer() {
+        String u = prefs.getString(KEY_EDGE_PTR, "");
+        return u != null && u.startsWith("https://") && !isPublicPointerHost(u);
     }
 
-    /** 拉公网指针取最新隧道裸地址;三通道全挂则退回已存地址,再没有返回 null。 */
-    private String edgeBase() {
-        for (String u : RENDEZVOUS) {
-            try {
-                JSONObject j = fetchJson(u + "?_=" + System.currentTimeMillis());
-                String url = j.optString("url", "");
-                if (url.startsWith("https://")) {
-                    prefs.edit().putString(KEY_EDGE_BASE, url).apply();
-                    return url;
-                }
-            } catch (Exception ignored) { }
+    private byte[] edgeLoginBody() {
+        try {
+            String pw = prefs.getString(KEY_EDGE_PW, "");
+            String body = "pw=" + URLEncoder.encode(pw, "UTF-8") + "&kind=phone";
+            return body.getBytes("UTF-8");
+        } catch (Exception e) {
+            return new byte[0];
         }
-        return prefs.getString(KEY_EDGE_BASE, null);
     }
 
-    /** 后台对指针:隧道地址变了就重写直连入口,正在看旧地址就换新地址重载。 */
+    /** 只请求机主配置的私人指针。公开 GitHub / jsDelivr 地址直接拒绝。 */
+    private String fetchPrivatePointer() {
+        String u = prefs.getString(KEY_EDGE_PTR, "");
+        if (u == null || !u.startsWith("https://") || isPublicPointerHost(u)) return null;
+        try {
+            JSONObject j = fetchJson(u, prefs.getString(KEY_EDGE_PTR_TOK, ""), false);
+            String origin = httpsOrigin(j.optString("url", ""));
+            if (origin != null) {
+                prefs.edit().putString(KEY_EDGE_BASE, origin).apply();
+                return origin;
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    /** 私人指针变了就换隧道源站。口令用 POST,不拼进新地址。 */
     private void refreshEdge() {
-        if (!hasEdgePw()) return;
+        if (!hasPrivatePointer()) return;
         new Thread(new Runnable() {
             public void run() {
-                String base = edgeBase();
+                final String base = fetchPrivatePointer();
                 if (base == null) return;
-                final String entry = edgeEntry(base);
-                if (entry.equals(prefs.getString(KEY_DIRECT, ""))) return;
-                prefs.edit().putString(KEY_DIRECT, entry).putString(KEY_URL, entry).apply();
+                if (base.equals(prefs.getString(KEY_DIRECT, ""))) return;
+                prefs.edit().putString(KEY_DIRECT, base).putString(KEY_URL, base).putString(KEY_EDGE_BASE, base).apply();
                 runOnUiThread(new Runnable() {
                     public void run() {
-                        if (webMode && useDirect && web != null) web.loadUrl(entry);
+                        if (!(webMode && useDirect && web != null)) return;
+                        if (hasEdgePw()) web.postUrl(base + "lan-gate/login", edgeLoginBody());
+                        else web.loadUrl(base);
                     }
                 });
             }
         }).start();
     }
 
-    /** 远程接入入口:拉指针→拼 ?pw= → 走 https 直连。 */
-    private void connectEdge() {
-        if (!hasEdgePw()) {
-            showSetup("未设置远程隧道口令——在下方「远程隧道口令」填入电脑给的密码再试。");
-            return;
-        }
+    private void openEdge(String origin) {
+        if (origin == null || !origin.startsWith("https://")) return;
+        if (!origin.endsWith("/")) origin = origin + "/";
+        useDirect = true;
+        prefs.edit().putString(KEY_URL, origin).putString(KEY_DIRECT, origin).putString(KEY_EDGE_BASE, origin).apply();
+        pushHistory(origin);
+        rescanFails = 0;
+        if (hasEdgePw()) showWeb(origin + "lan-gate/login", edgeLoginBody());
+        else showWeb(origin);
+    }
+
+    /**
+     * 远程入口。地址优先级:输入框里的 https 地址,然后私人指针,然后上次保存的隧道源站。
+     * 有口令时 POST /lan-gate/login,没有就打开登录页让人自己填。
+     */
+    private void connectEdge(final String typedUrl) {
         setBarTitle("正在获取远程入口…");
         new Thread(new Runnable() {
             public void run() {
-                final String base = edgeBase();
+                String base = null;
+                if (typedUrl != null && typedUrl.startsWith("https://") && !isPublicPointerHost(typedUrl)) {
+                    base = httpsOrigin(stripPw(typedUrl));
+                }
+                if (base == null) base = fetchPrivatePointer();
+                if (base == null) {
+                    String saved = prefs.getString(KEY_EDGE_BASE, null);
+                    if (saved != null && saved.startsWith("https://")) base = httpsOrigin(saved);
+                }
+                final String resolved = base;
                 runOnUiThread(new Runnable() {
                     public void run() {
-                        if (base == null) {
-                            showSetup("拉不到远程入口指针——检查网络后重试;在局域网内也可用「自动搜索网关」。");
+                        if (resolved == null) {
+                            showSetup("没有远程入口。在电脑上打开 tunnel.json(默认在用户目录 /.dsh/gates/edge-3095/),或运行 publish-rendezvous.ps1,它现在只在本机打印地址。把 https 地址粘贴到上方。隧道会轮换的话,填写只有你能访问的私人指针,不要用公开的 GitHub 地址。");
                             return;
                         }
-                        connect(edgeEntry(base));
+                        openEdge(resolved);
                     }
                 });
             }
         }).start();
     }
 
-    /** LAN 全部找不到时的兜底:有远程口令走隧道,没有才回设置页。 */
+    /** LAN 找不到时,若已经有隧道地址或私人指针,再试一次远程;已经在隧道上就回设置页,避免死循环。 */
     private void fallbackEdgeOrSetup(String msg) {
-        if (hasEdgePw()) { connectEdge(); } else { showSetup(msg); }
+        boolean haveEdge = hasPrivatePointer()
+                || (prefs.getString(KEY_EDGE_BASE, "") != null && prefs.getString(KEY_EDGE_BASE, "").startsWith("https://"));
+        if (!useDirect && haveEdge) connectEdge(null);
+        else showSetup(msg);
     }
 
     /** 主框架失败后的自动重扫:换 IP 场景改指转发器并原页重载;扫不到/反复失败回设置页。 */
